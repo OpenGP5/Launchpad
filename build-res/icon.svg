@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none">
+  <title>OpenGP5 Launchpad</title>
+  <desc>A flat vector GP-5 with a narrow graphite enclosure, two black knobs, a blue preset display, staggered side jacks and a silver footswitch inside a blue ring.</desc>
+
+  <!-- Solid fills and editable paths only. The lavender tile belongs to Launchpad. -->
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="#d9ccf1"/>
+
+  <!-- The GP-5's tall enclosure and control positions follow the reference photographs. -->
+  <g transform="rotate(-8 512 512)">
+    <!-- Input on the upper right; output/headphones lower on the left. -->
+    <g fill="#1e2127">
+      <rect x="674" y="388" width="26" height="100" rx="8"/>
+      <rect x="324" y="504" width="26" height="100" rx="8"/>
+    </g>
+    <g fill="#e4e7e9">
+      <rect x="690" y="400" width="14" height="76" rx="6"/>
+      <rect x="320" y="516" width="14" height="76" rx="6"/>
+    </g>
+    <rect x="344" y="136" width="336" height="752" rx="56" fill="#51545a"/>
+
+    <g fill="#1e2127">
+      <circle cx="432" cy="252" r="66"/>
+      <circle cx="592" cy="252" r="66"/>
+    </g>
+    <path d="M389 228 407 239" stroke="#e4e7e9" stroke-width="12" stroke-linecap="round"/>
+
+    <!-- VOL and PARA, reduced to small single-stroke letterforms. -->
+    <g transform="translate(402 348)" stroke="#e4e7e9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M0 0 7 18 14 0M31 0Q24 0 24 7V11Q24 18 31 18Q38 18 38 11V7Q38 0 31 0M48 0V18H60"/>
+    </g>
+    <g transform="translate(549 348)" stroke="#e4e7e9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M0 18V0H8Q14 0 14 5Q14 10 8 10H0M22 18 30 0 38 18M25 12H35M46 18V0H54Q62 0 62 5Q62 10 54 10H46M54 10 62 18M70 18 78 0 86 18M73 12H83"/>
+    </g>
+
+    <!-- The stock display's large preset number and smaller information panel. -->
+    <rect x="384" y="416" width="256" height="144" rx="20" fill="#1e2127"/>
+    <rect x="396" y="428" width="232" height="120" rx="8" fill="#4f8af5"/>
+    <path d="M538 428H620Q628 428 628 436V468H538Z" fill="#244a87"/>
+    <path d="M538 468H628V540Q628 548 620 548H538Z" fill="#1e2127"/>
+    <g stroke="#e4e7e9" stroke-width="11">
+      <rect x="410" y="449" width="42" height="78" rx="12"/>
+      <rect x="472" y="449" width="42" height="78" rx="12"/>
+    </g>
+    <g stroke="#e4e7e9" stroke-width="6" stroke-linecap="round">
+      <path d="M557 440Q551 448 557 456M573 444V452M593 444V452M609 440Q615 448 609 456"/>
+      <path d="M552 491H610M552 516H594"/>
+    </g>
+
+    <!-- GP-5 lettering is drawn as paths, so rendering needs no installed font. -->
+    <g transform="translate(430 584)" stroke="#e4e7e9" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M34 0H10Q0 0 0 10V26Q0 36 10 36H34V20H20"/>
+      <path d="M50 36V0H72Q84 0 84 10Q84 20 72 20H50"/>
+      <path d="M98 20H114"/>
+      <path d="M162 0H132V16H152Q164 16 164 26Q164 36 152 36H132"/>
+    </g>
+
+    <!-- Blue LED ring, silver washer and dark-topped metal switch. -->
+    <circle cx="512" cy="752" r="104" fill="#4f8af5"/>
+    <circle cx="512" cy="752" r="82" fill="#e4e7e9"/>
+    <circle cx="512" cy="752" r="56" fill="#51545a"/>
+    <circle cx="512" cy="752" r="44" fill="#e4e7e9"/>
+    <g stroke="#51545a" stroke-width="12">
+      <path d="M453 693 466 706M558 798 571 811M453 811 466 798M558 706 571 693"/>
+    </g>
+  </g>
+</svg>

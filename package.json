@@ -1,0 +1,105 @@
+{
+  "name": "opengp5-launchpad",
+  "productName": "OpenGP5 Launchpad",
+  "version": "0.1.0",
+  "description": "Flash, manage and back up a Valeton GP-5 running stock or OpenGP5 firmware.",
+  "main": "main.js",
+  "type": "commonjs",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "icon": "electron scripts/icon.cjs",
+    "test": "node --test test/",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux"
+  },
+  "build": {
+    "appId": "io.github.opengp5.launchpad",
+    "productName": "OpenGP5 Launchpad",
+    "files": [
+      "main.js",
+      "services.js",
+      "preload.js",
+      "valeton.cjs",
+      "src/**/*",
+      "!src/_dev{,/**}",
+      "!src/**/*.nam"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build-res"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.music",
+      "identity": null
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "AudioVideo;Audio",
+      "maintainer": "OpenGP5 <noreply@opengp5.invalid>",
+      "vendor": "OpenGP5",
+      "synopsis": "Flash, manage and back up a Valeton GP-5",
+      "executableName": "opengp5-launchpad"
+    },
+    "icon": "build-res/icon.png",
+    "nsis": {
+      "artifactName": "${productName} Setup ${version} ${arch}.${ext}"
+    },
+    "appImage": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    }
+  },
+  "devDependencies": {
+    "electron": "45.3.2",
+    "electron-builder": "26.18.0"
+  },
+  "launchpad": {
+    "updates": {
+      "repo": "OpenGP5/Launchpad",
+      "tagPrefix": "v"
+    }
+  },
+  "homepage": "https://github.com/OpenGP5/Launchpad",
+  "author": {
+    "name": "OpenGP5",
+    "email": "noreply@opengp5.invalid"
+  },
+  "license": "MIT"
+}

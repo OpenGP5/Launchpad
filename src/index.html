@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'">
+<title>OpenGP5 Launchpad</title>
+<link rel="icon" type="image/png" href="assets/app-icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app" id="app">
+  <header class="topbar drag">
+    <button class="conn nodrag" id="conn" type="button" aria-controls="panel" aria-expanded="false" title="Your pedal"><span class="dot"></span><span>Looking for a GP-5</span></button>
+    <span class="sr-only" id="connlive" role="status" aria-live="polite"></span>
+    <button class="btn primary nodrag" id="connect" hidden>Connect</button>
+    <span class="spacer"></span>
+    <button class="btn small primary nodrag w-flash" id="update" hidden></button>
+    <div class="winctl nodrag" id="winctl" hidden>
+      <button type="button" data-win="minimize" aria-label="Minimise" title="Minimise"></button>
+      <button type="button" data-win="maximize" aria-label="Maximise" title="Maximise"></button>
+      <button type="button" data-win="close" class="close" aria-label="Close" title="Close"></button>
+    </div>
+  </header>
+  <nav class="rail" id="rail" aria-label="Sections"></nav>
+  <main id="main" tabindex="-1"></main>
+  <aside class="panel" id="panel" aria-label="Your pedal" tabindex="-1"></aside>
+</div>
+<div class="sr-only" id="toastlive" role="status" aria-live="polite"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
