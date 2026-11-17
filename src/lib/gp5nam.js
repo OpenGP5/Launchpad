@@ -109,7 +109,7 @@ function unpack(a) {
 // ------------------------------------------------------------------ ranges (a2q_export.py forward_float) + quantize
 
 // The float64 forward over the calibration signal (with NAM's pad_start), only the ranges a2r_export needs.
-function ranges(m, u) {
+function ranges(m, u, wantY = false) {
   const C = 3;
   let rf = m.KH;
   for (const L of m.layers) rf += (L.K - 1) * L.D;
@@ -152,7 +152,49 @@ function ranges(m, u) {
   }
   R.x.push(maxabs(x));
   R.head = maxabs(head);
+  if (wantY) {                                         // the output, as forward_float: hs * (hb + sum over k of hw[:, k] . head)
+    const KH = m.KH, y = new Float64Array(N - off);
+    for (let n = off; n < N; n++) {
+      let s = 0;
+      for (let k = 0; k < KH; k++) {
+        const j = n - (KH - 1 - k);
+        if (j < 0) continue;
+        s += (m.hw[0 * KH + k] * head[0][j] + m.hw[1 * KH + k] * head[1][j]) + m.hw[2 * KH + k] * head[2][j];
+      }
+      y[n - off] = m.hs * (m.hb + s);
+    }
+    R.y = y;
+  }
   return R;
+}
+
+// Output levelling (a2r_export.py output_level, the very same sums): the plucked chords of the calibration signal at
+// -15 dBFS peak (hard playing at the pedal's input), K-weighted loudness and peak of the output, the first 50 ms left
+// out -> the gain (dB, to 0.01) that puts every capture at OUTPUT_LEVEL with its peak at most OUTPUT_PEAK_MAX.
+export const OUTPUT_LEVEL = -20.0, OUTPUT_PEAK_MAX = -3.0;
+const PLAY_SCALE = 0.17782794100389229;
+const KW = [[1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585],
+            [1.0, -2.0, 1.0, -1.99004745483398, 0.99007225036621]];
+function outputLevel(m, calib) {
+  const u = new Float64Array(3 * SR);
+  for (let i = 0; i < u.length; i++) u[i] = calib[i] * PLAY_SCALE;
+  const y = ranges(m, u, true).y.subarray(2400);
+  let kw = y;
+  for (const [b0, b1, b2, a1, a2] of KW) {
+    const o = new Float64Array(kw.length);
+    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    for (let i = 0; i < kw.length; i++) {
+      const x = kw[i], v = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+      x2 = x1; x1 = x; y2 = y1; y1 = v; o[i] = v;
+    }
+    kw = o;
+  }
+  let ms = 0; for (const v of kw) ms += v * v;
+  const loud = 10 * Math.log10(ms / kw.length + 1e-30);
+  let pk = 0; for (const v of y) pk = Math.max(pk, Math.abs(v));
+  const peak = 20 * Math.log10(pk + 1e-30);
+  const g = Math.max(-40, Math.min(40, OUTPUT_LEVEL - loud, OUTPUT_PEAK_MAX - peak));
+  return { gainDb: Math.floor(g * 100 + 0.5) / 100, loud, peak };
 }
 
 const I16 = 32767, I32 = 2 ** 31 - 1;
@@ -259,17 +301,37 @@ export function makeBlob(q, name) {
   return out;
 }
 
+// The GP-5's input at full scale, measured 2026-11-17 (Scarlett 18i20 loop-back); a2r_export.py has the same.
+export const PEDAL_INPUT_DBU = 7.1;
+// The input gain that drives a capture as hard as it was recorded (its metadata.input_level_dbu), 1 without it.
+export function calibrationGain(d, pedalDbu = PEDAL_INPUT_DBU) {
+  const dbu = d?.metadata?.input_level_dbu;
+  return typeof dbu === "number" && Number.isFinite(dbu) ? 10 ** ((pedalDbu - dbu) / 20) : 1;
+}
+
 let calibCache = null;
-// .nam text -> { blob, name }. Throws NotA2 with a plain-language reason when the capture cannot be used.
-export function convertNam(text, name) {
+// .nam text -> { blob, name, gainDb, levelDb, calibrated }. Throws NotA2 with a plain-language reason when the capture
+// cannot be used. Options (both on unless set false; a2r_export.py --no-calibration / --no-level):
+//   calibrate  drive the capture as hard as it was recorded (its metadata.input_level_dbu; nothing without it)
+//   level      every capture equally loud (OUTPUT_LEVEL), instead of the level of the gear it was captured from
+export function convertNam(text, name, { calibrate = true, level = true } = {}) {
   let d;
   try { d = JSON.parse(text); } catch { throw new NotA2("This file is not a NAM capture (.nam)"); }
   let a;
   try { a = checkA2(pickWavenet(d, 3)); } catch (e) { if (e instanceof NotA2) throw e; throw new NotA2("This capture is not an A2-Lite model. Only NAM A2 captures can be loaded."); }
   const m = unpack(a);
+  const g = calibrate ? calibrationGain(d) : 1;       // the guitar enters through rech and each layer's mix only
+  m.rech = m.rech.map((v) => v * g);
+  for (const L of m.layers) L.mix = L.mix.map((v) => v * g);
   calibCache ??= calibSignal();
+  let levelDb = 0;
+  if (level) {                                        // every capture equally loud: the head's scale (no range changes)
+    levelDb = outputLevel(m, calibCache).gainDb;
+    m.hs = m.hs * 10 ** (levelDb / 20);
+  }
   const q = quantize(m, ranges(m, calibCache));
-  return { blob: makeBlob(q, name), name: new TextDecoder().decode(new TextEncoder().encode(name).slice(0, 24)).replace(/�$/, "") };
+  return { blob: makeBlob(q, name), gainDb: 20 * Math.log10(g), levelDb, calibrated: calibrationGain(d) !== 1,
+           name: new TextDecoder().decode(new TextEncoder().encode(name).slice(0, 24)).replace(/�$/, "") };
 }
 
 export function blobInfo(b) {

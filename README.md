@@ -8,7 +8,7 @@ the tools that fit what the pedal runs.
 |---|---|---|
 | Home | what the pedal runs and what's on it | everything |
 | Flash | the bundled firmwares, your own build, or Valeton's firmware; every image is checked before writing | any, including update mode |
-| Tones | 12 slots for NAM captures: drop a `.nam` file, name it, send it | [NAM Loader](https://github.com/OpenGP5/NAM-Loader) |
+| Tones | 12 slots for NAM captures: drop a `.nam` file, name it, send it; a cab IR (`.wav`) per slot; input calibration and even loudness, each with a switch | [NAM Loader](https://github.com/OpenGP5/NAM-Loader) 1.1 |
 | Presets | 8 presets: edit live with the pedal's own settings, name, rearrange, export and import | [Dreamcatcher](https://github.com/OpenGP5/Dreamcatcher) 1.2 |
 | Presets (Valeton) | the 100 stock presets: browse, edit every setting by name, hear changes live, rename, reset, export and import | Valeton firmware V1.0.6 |
 | Backups | one `.gp5backup` file with the installed firmware's data; restores onto the same firmware | OpenGP5 firmwares, Valeton firmware |

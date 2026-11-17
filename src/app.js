@@ -156,7 +156,7 @@ const ctx = {
   // platform 0.4+: the tones are files (and maybe some still the old way, to move); before: fixed slots
   filesMode: () => atLeast(state.pedal?.firmware?.platform, "0.4.0"),
   async loadNam(link) {
-    if (ctx.filesMode()) { const t = await readToneFiles(link); state.nam = { bank: t.bank, legacy: t.legacy, files: true }; }
+    if (ctx.filesMode()) { const t = await readToneFiles(link); state.nam = { bank: t.bank, cabs: t.cabs, legacy: t.legacy, files: true }; }
     else state.nam = { bank: await readBank(link), legacy: [], files: false };
     state.nam.playing = await dspCaptureCrc(link);
   },

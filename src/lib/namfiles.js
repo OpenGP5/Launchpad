@@ -5,16 +5,26 @@ import { listFiles, writeFile, deleteFile, RUNS, SECTOR } from "./gp5files.js";
 import { flashRead, blobInfo, dspCaptureCrc, crc32, SLOTS, SLOT_BYTES } from "./gp5nam.js";
 import { fourcc } from "./gp5store.js";
 import { cmd } from "./device.js";
+import { cabInfo, cabNameBytes } from "./cabir.js";
 
 export const NAM_OWNER = fourcc("AMPB");
 export const toneName = (i) => `tone-${String(i + 1).padStart(2, "0")}`;
+// a tone's cab IR (NAM Loader 1.1): "cab-NN" with tone slot NN (lib/cabir.js makes the file)
+export const cabFileName = (i) => `cab-${String(i + 1).padStart(2, "0")}`;
 const DATA = RUNS[1].base;                          // the old data area = files run B
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// { bank: [{ name, crc, length, file } | null] x 12, dir, legacy: [slot numbers holding a tone the old way] }
+// { bank: [{ name, crc, length, file } | null] x 12, cabs: [{ taps, name, file } | null] x 12, dir,
+//   legacy: [slot numbers holding a tone the old way] }
 export async function readToneFiles(link) {
-  const dir = await listFiles(link), bank = Array(SLOTS).fill(null);
+  const dir = await listFiles(link), bank = Array(SLOTS).fill(null), cabs = Array(SLOTS).fill(null);
   for (const f of dir.files) {
+    const c = f.owner === NAM_OWNER && f.name.match(/^cab-(\d\d)$/), ci = c ? +c[1] - 1 : -1;
+    if (ci >= 0 && ci < SLOTS) {
+      const head = await flashRead(link, f.addr + 64, 16), taps = cabInfo(head)?.taps;
+      if (taps) cabs[ci] = { ...cabInfo(head, await flashRead(link, f.addr + 64 + 16 + 4 * taps, cabNameBytes)), file: f };
+      continue;
+    }
     const m = f.owner === NAM_OWNER && f.name.match(/^tone-(\d\d)$/);
     const i = m ? +m[1] - 1 : -1;
     if (i < 0 || i >= SLOTS) continue;
@@ -28,7 +38,7 @@ export async function readToneFiles(link) {
     const info = blobInfo(await flashRead(link, at, 68));
     if (info) { legacy.push(i); if (!bank[i]) bank[i] = { ...info, old: true }; }   // still played (the firmware falls back)
   }
-  return { bank, dir, legacy };
+  return { bank, cabs, dir, legacy };
 }
 
 async function waitPlaying(link, crc) {
@@ -72,3 +82,9 @@ export async function moveTonesToFiles(link, progress = () => {}) {
   progress(1);
   return moved;
 }
+
+// A tone's cab IR: write it (the pedal picks it up within about a second when that tone plays), or remove it.
+export async function putCabFile(link, i, bytes, progress = () => {}) {
+  await writeFile(link, NAM_OWNER, cabFileName(i), bytes, progress);
+}
+export async function removeCabFile(link, i) { return deleteFile(link, NAM_OWNER, cabFileName(i)); }

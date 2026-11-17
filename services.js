@@ -88,7 +88,7 @@ exports.checkUpdate = async function checkUpdate(override) {
     const mine = pkg.version.split(".").map(Number);
     const best = list.filter((x) => !x.draft && ver(x.tag_name)).sort((a, b) => newer(ver(b.tag_name), ver(a.tag_name)))[0];
     if (!best || newer(ver(best.tag_name), mine) <= 0) return { current: pkg.version, latest: best ? best.tag_name.slice(prefix.length) : pkg.version, update: false };
-    const want = { darwin: process.arch === "arm64" ? /arm64.*\.dmg$/i : /^(?!.*arm64).*\.dmg$/i, win32: /\.exe$/i, linux: /\.AppImage$/i }[process.platform];
+    const want = { darwin: process.arch === "arm64" ? /arm64.*\.dmg$/i : /^(?!.*arm64).*\.dmg$/i, win32: /\.exe$/i, linux: process.arch === "arm64" ? /arm64\.AppImage$/i : /(x86_64|x64|amd64)\.AppImage$/i }[process.platform];
     const asset = want && (best.assets || []).find((a) => want.test(a.name));
     return { current: pkg.version, latest: best.tag_name.slice(prefix.length), update: true, notes: (best.body || "").slice(0, 4000),
              page: best.html_url, download: asset ? asset.browser_download_url : best.html_url, prerelease: !!best.prerelease };
