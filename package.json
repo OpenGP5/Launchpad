@@ -1,7 +1,7 @@
 {
   "name": "opengp5-launchpad",
   "productName": "OpenGP5 Launchpad",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Flash, manage and back up a Valeton GP-5 running stock or OpenGP5 firmware.",
   "main": "main.js",
   "type": "commonjs",

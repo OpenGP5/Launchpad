@@ -113,8 +113,9 @@ test("NAM Loader 1.3: 30 captures and 12 IRs fit (any order), and replacing one 
 
 test("NAM Loader 1.3: each tone's IR in the settings record (as nds32/firmware.c)", async () => {
   const { parseToneRecord, makeToneRecord, toneIrs, namLayout } = await import("../src/lib/namfiles.js");
-  assert.deepEqual(namLayout({ kind: "nam", version: "1.3.0" }), { slots: 30, irs: 12, irBank: true });
-  assert.deepEqual(namLayout({ kind: "nam", version: "1.2.1" }), { slots: 12, irs: 12, irBank: false });
+  assert.deepEqual(namLayout({ kind: "nam", version: "1.3.0" }), { slots: 30, irs: 12, irBank: true, play: false });
+  assert.equal(namLayout({ kind: "nam", version: "1.3.1" }).play, true);
+  assert.deepEqual(namLayout({ kind: "nam", version: "1.2.1" }), { slots: 12, irs: 12, irBank: false, play: false });
   // 1.2's record: 13 x 8 bytes, the built-in capture's last; read as 1.3 reads it
   const old = new Uint8Array(104), dv = new DataView(old.buffer);
   dv.setUint32(0, 0xAAAA, true); old.set([5, 13, 12, 11], 4); dv.setUint32(96, 0xBBBB, true); old.set([1, 2, 3, 4], 100);

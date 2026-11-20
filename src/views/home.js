@@ -25,11 +25,14 @@ function backupsCard(ctx, { button = true } = {}) {   // button: off where the b
 function contents(ctx) {
   const { state, esc, icon } = ctx, fw = state.pedal?.firmware?.kind;
   if (fw === "nam" && state.nam) {
-    const rows = state.nam.bank.map((s, i) => `<div class="item"><span class="n">${String(i + 1).padStart(2, "0")}</span>
-      <span class="main"><span class="name ${s ? "" : "empty"}">${s ? esc(s.name) : "empty"}</span></span>
-      ${s && s.crc === state.nam.playing ? `<span class="pill world" style="padding:0 6px" title="Playing" aria-label="playing">${icon("player-play", 12)}</span>` : ""}</div>`).join("");
-    return `<div class="cols stretch" style="--n:2"><section class="card w-nam"><div class="card-head"><h2>${icon("wave-sine", 18)} Tone slots</h2>
-      <button class="btn small ghost" data-go="tones">Manage</button></div><div class="mini">${rows}</div></section>${backupsCard(ctx, { button: false })}</div>`;
+    const filled = state.nam.bank.map((s, i) => [s, i]).filter(([s]) => s), empty = state.nam.bank.length - filled.length;
+    const rows = filled.map(([s, i]) => `<div class="item"><span class="n">${String(i + 1).padStart(2, "0")}</span>
+      <span class="main"><span class="name">${esc(s.name)}</span></span>
+      ${s.crc === state.nam.playing ? `<span class="pill world" style="padding:0 6px" title="Playing" aria-label="playing">${icon("player-play", 12)}</span>` : ""}</div>`).join("");
+    return `<div class="cols stretch" style="--n:2"><section class="card w-nam"><div class="card-head"><h2>${icon("wave-sine", 18)} Captures</h2>
+      <button class="btn small ghost" data-go="tones">Manage</button></div>
+      ${filled.length ? `<div class="mini home-caps">${rows}</div>` : `<p class="muted" style="margin:0">None yet. Add captures on the Tones page.</p>`}
+      ${filled.length && empty ? `<p class="faint" style="font-size:12.5px;margin:8px 0 0">${empty} empty slot${empty === 1 ? "" : "s"}</p>` : ""}</section>${backupsCard(ctx, { button: false })}</div>`;
   }
   if (fw === "dreamcatcher") {
     const dream = state.dream || { last: 0, slots: Array(8).fill(null) };   // nothing saved yet: 8 empty slots
@@ -55,8 +58,11 @@ export default {
       title = state.problem ? "Launchpad can't reach USB-MIDI" : "Plug in your GP-5";
       text = !state.problem ? "Connect it with USB."
         : state.problemLinux ? "Launchpad uses ALSA's MIDI sequencer (/dev/snd/seq). If it's missing, load it with sudo modprobe snd-seq, then connect again."
+        : window.launchpad?.relaunch ? "The computer's MIDI system didn't start in time. Restarting Launchpad usually fixes it."
         : "Allow MIDI access, then connect again.";
-      if (state.problem) actions = `<button class="btn primary" data-act="connect">${icon("plug-connected", 16)} Connect</button>`;
+      if (state.problem) actions = window.launchpad?.relaunch
+        ? `<button class="btn primary" data-act="relaunch">${icon("restore", 16)} Restart Launchpad</button>`
+        : `<button class="btn primary" data-act="connect">${icon("plug-connected", 16)} Connect</button>`;
       tiles = [tile(ctx, "w-flash", "flash", "bolt", "Flash", "any firmware, stock or custom"), tile(ctx, "w-backup", "backups", "archive", "Restore", "from a backup file"),
                tile(ctx, "w-mods", "mods", "puzzle", "Mods", "for Valeton's firmware")];
     } else if (p.mode === MODE_OPEN) {
@@ -67,7 +73,8 @@ export default {
       if (fw === "nam" && state.nam) {
         const i = state.nam.bank.findIndex((s) => s && s.crc === state.nam.playing);
         chips.push(i >= 0 ? `playing ${String(i + 1).padStart(2, "0")} · ${state.nam.bank[i].name}` : "playing the built-in capture");
-        chips.push(`${state.nam.bank.filter(Boolean).length} of 12 tone slots in use`);
+        chips.push(`${state.nam.bank.filter(Boolean).length} of ${state.nam.bank.length} captures`);
+        if (state.nam.layout?.irBank) chips.push(`${(state.nam.cabs || []).filter(Boolean).length} of 12 IRs`);
       }
       if (fw === "dreamcatcher") {
         if (state.dream) chips.push(`starts on P${state.dream.last + 1}`);
@@ -99,5 +106,6 @@ export default {
   mount(root, ctx) {
     root.querySelectorAll("[data-go]").forEach((b) => b.onclick = () => ctx.go(b.dataset.go));
     root.querySelector('[data-act="connect"]')?.addEventListener("click", () => document.getElementById("connect").click());
+    root.querySelector('[data-act="relaunch"]')?.addEventListener("click", () => window.launchpad.relaunch());
   },
 };

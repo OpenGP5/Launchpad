@@ -12,13 +12,13 @@ export const KNOWN = { dreamcatcher: "dreamcatcher", nam: "nam", tuner: "tuner" 
 export const kindOf = (id) => KNOWN[id] || `fw:${id}`;
 
 /** the running firmware's metadata over USB (7E 16, platform 1.0), or null for an older platform / firmware */
-export async function readPedalMeta(link) {
-  const first = await cmd(link, [0x7E, 0x16, 0, 0], 300);
+export async function readPedalMeta(link, timeout = 300) {
+  const first = await cmd(link, [0x7E, 0x16, 0, 0], timeout);
   if (!first || first.length < 5 || first[2] !== 1) return null;
   const total = first[3] | (first[4] << 8), out = new Uint8Array(total);
   out.set(first.subarray(5, 5 + Math.min(48, total)), 0);
   for (let off = 48; off < total; off += 48) {
-    const r = await cmd(link, [0x7E, 0x16, off & 0xFF, off >> 8], 300);
+    const r = await cmd(link, [0x7E, 0x16, off & 0xFF, off >> 8], timeout);
     if (!r || r.length < 5 || r[2] !== 1) return null;
     out.set(r.subarray(5, 5 + Math.min(48, total - off)), off);
   }

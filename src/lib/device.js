@@ -51,7 +51,11 @@ export async function identify(link, progress = () => {}) {
   const id = await cmd(link, [0x7E, 0x0D], 300);
   if (id && id.length >= 7 && id[2] === 1) {           // 7E 0D 1 <platform major minor patch> <name, zero-terminated>
     const name = new TextDecoder().decode(id.subarray(6)).split("\0")[0];
-    const meta = await readPedalMeta(link).catch(() => null);       // 1.0: the firmware says what it is
+    let meta = await readPedalMeta(link).catch(() => null);         // 1.0: the firmware says what it is
+    // a platform with the 1.0 API (0.7 and later) always has it: a missed answer (a busy moment) is asked again,
+    // or Launchpad would take it for an older firmware (NAM Loader 1.3 showed its older Tones page)
+    const api10 = id[3] > 0 || id[4] >= 7;
+    for (let k = 0; !meta && api10 && k < 3; k++) meta = await readPedalMeta(link, 800).catch(() => null);
     if (meta) {
       const kind = kindOf(meta.id);
       return { kind, title: meta.name, name: meta.id, version: meta.version, meta, platform: `${id[3]}.${id[4]}.${id[5]}` };

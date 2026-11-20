@@ -6,6 +6,54 @@ import { FakePedal } from "./fakepedal.js";
 import * as F from "./gp5flash.js";
 import { StockModel } from "./stocksim.js";
 import { DC, IDS, latest, planSave, applyPlan, decodeDreamcatcher, encodeDreamcatcher, STORE_SIZE } from "./gp5store.js";
+import { parseHeader, RUNS, HDR } from "./gp5files.js";
+import { crc32 } from "./gp5nam.js";
+import { parseToneRecord, makeToneRecord, toneIrs, TONE_REC, NAM_OWNER } from "./namfiles.js";
+
+// NAM Loader 1.3.1's parameters (7E 10 / 7E 11), as its nds32/firmware.c answers them: gate, EQ and IR of the
+// capture playing (kept per capture in the store record AMPT), and the slot playing.
+class NamLive {
+  constructor(pedal) { this.p = pedal; }
+  files() {                                       // the newest copy of each of NAM Loader's files
+    const f = this.p.flash, out = new Map();
+    for (let r = 0; r < RUNS.length; r++) for (let s = 0; s < RUNS[r].sectors; s++) {
+      const a = RUNS[r].base + s * 0x1000, h = parseHeader(f.subarray(a, a + HDR), r, s);
+      if (h && h.owner === NAM_OWNER && (!out.has(h.name) || h.seq > out.get(h.name).seq)) out.set(h.name, h);
+    }
+    return out;
+  }
+  bank() {
+    const fs = this.files(), two = (i) => String(i + 1).padStart(2, "0");
+    const bank = Array.from({ length: 30 }, (_, i) => { const h = fs.get(`tone-${two(i)}`); return h ? { crc: u32(this.p.flash, h.addr + HDR + 8) } : null; });
+    const cabs = Array.from({ length: 12 }, (_, i) => (fs.get(`cab-${two(i)}`) ? {} : null));
+    return { bank, cabs };
+  }
+  rec() { return parseToneRecord(latest(this.p.flash.slice(STORE, STORE + STORE_SIZE)).get(TONE_REC)?.data); }
+  save(entries) {
+    const img = this.p.flash.slice(STORE, STORE + STORE_SIZE);
+    this.p.flash.set(applyPlan(img, planSave(img, TONE_REC, makeToneRecord(entries))), STORE);
+  }
+  slot() { return this.bank().bank.findIndex((s) => s && s.crc === this.p.dspCrc); }
+  get(id) {
+    const { bank, cabs } = this.bank(), i = this.slot(), e = this.rec(), k = i < 0 ? 30 : i;
+    const own = e[k].crc === this.p.dspCrc && e[k].crc;
+    if (id === 0) return 1;
+    if (id === 1) return 0;
+    if (id >= 2 && id <= 5) return own ? e[k].v[id - 2] : [0, 12, 12, 12][id - 2];
+    if (id === 6) return i < 0 ? 0 : toneIrs(e, bank, cabs)[i] + 1;
+    if (id === 7) return i + 1;
+    return null;
+  }
+  set(id, x) {
+    const { bank } = this.bank(), i = this.slot(), k = i < 0 ? 30 : i;
+    if (id === 7) { if (x > 30 || (x && !bank[x - 1])) return true; this.p.dspCrc = x ? bank[x - 1].crc : 0xD3F0; return true; }
+    if (id < 2 || id > 6) return id <= 1;
+    const e = this.rec();
+    if (e[k].crc !== this.p.dspCrc || !e[k].crc) { e[k].crc = this.p.dspCrc; e[k].v = [0, 12, 12, 12]; e[k].ir = 0; }
+    if (id === 6) e[k].ir = x ? x + 1 : 1; else e[k].v[id - 2] = x;
+    this.save(e); return true;
+  }
+}
 
 // Dreamcatcher's live settings (platform 0.5.4, 7E 10 / 7E 11), as its nds32/controls.c answers them: loads and
 // saves presets in the simulated store like the firmware does.
@@ -67,8 +115,10 @@ const MARKS = { nam: "push to load", dreamcatcher: "DREAMCATCHER", tuner: "play 
 export class SimPedal extends FakePedal {
   // firmware: "nam" | "dreamcatcher" | "tuner" | "opengp5"; mode: F.MODE_OPEN / F.MODE_STOCK / F.MODE_LOADER
   // identity: the platform answers 7E 0D / 7E 0E (0.2.2 and later)
-  constructor({ mode = F.MODE_OPEN, firmware = "nam", delay = 0, identity = false, platform = "0.2.1", stock = null } = {}) {
+  // namVersion: the NAM Loader version it says it runs (7E 16, OpenGP5 1.0 metadata); 1.3.1 and later answer its parameters
+  constructor({ mode = F.MODE_OPEN, firmware = "nam", delay = 0, identity = false, platform = "0.2.1", stock = null, namVersion = null } = {}) {
     super(mode);
+    this.namVersion = namVersion;
     this.firmware = firmware; this.identity = identity; this.reloads = []; this.platform = platform;
     this.flash = new Uint8Array(FLASH).fill(0xFF);
     this.delay = delay;
@@ -142,6 +192,14 @@ export class SimPedal extends FakePedal {
     const pl = m.payload, a = u32(pl, 2);
     switch (pl[1]) {
       case 0x0D: return this.identity ? [[0x7E, 0x0D, 1, ...this.platform.split(".").map(Number), ...new TextEncoder().encode(this.firmware), 0]] : out;
+      case 0x16: {                                     // the firmware's metadata (1.0), 48 bytes at a time
+        if (!this.namVersion || this.firmware !== "nam") return out;
+        const json = new TextEncoder().encode(JSON.stringify({ id: "nam", name: "NAM Loader", version: this.namVersion, author: "OpenGP5", built_on: this.platform }));
+        const blk = new Uint8Array(16 + json.length), dv = new DataView(blk.buffer);
+        blk.set(new TextEncoder().encode("GP5META1")); dv.setUint32(8, json.length, true); blk.set(json, 12); dv.setUint32(12 + json.length, crc32(json), true);
+        const off = pl[2] | (pl[3] << 8);
+        return [[0x7E, 0x16, 1, blk.length & 255, blk.length >> 8, ...blk.subarray(off, off + 48)]];
+      }
       case 0x0F: return this.identity && this.platform >= "0.5.2" ? [[0x7E, 0x0F, 1, this.knob ?? 150, 0, 0]] : out;
       case 0x18: return this.dev() ? [this.logReply(a)] : out;          // the log (platform 0.7)
       case 0x14: return this.dev() ? [this.statusReply(pl.length > 2 && pl[2] === 1)] : out;   // load and memory (0.7)
@@ -152,6 +210,14 @@ export class SimPedal extends FakePedal {
         return [[0x7E, 0x0E, this.firmware === "dreamcatcher" ? 1 : 0]];
       case 0x10: case 0x11: {                          // live settings (0.5.4)
         if (!this.identity || this.platform < "0.5.4") return out;
+        if (this.firmware === "nam" && this.namVersion >= "1.3.1") {
+          this.nam ??= new NamLive(this);
+          const id = pl[2] | (pl[3] << 8);
+          if (pl[1] === 0x10) return [[0x7E, 0x10, this.nam.set(id, u32(pl, 4)) ? 1 : 0]];
+          const vals = [];
+          for (let i = 0; i < Math.min(40, pl[4]); i++) { const x = this.nam.get(id + i); if (x === null) break; vals.push(x & 0xFF, x >> 8); }
+          return [[0x7E, 0x11, vals.length / 2, ...vals]];
+        }
         if (this.firmware !== "dreamcatcher") return pl[1] === 0x10 ? [[0x7E, 0x10, 0]] : [[0x7E, 0x11, 0]];
         this.dream ??= new DreamLive(this);
         const id = pl[2] | (pl[3] << 8);

@@ -180,9 +180,14 @@ const ctx = {
   filesMode: () => atLeast(state.pedal?.firmware?.platform, "0.4.0"),
   async loadNam(link) {
     if (ctx.filesMode()) {
-      const layout = namLayout(state.pedal?.firmware), t = await readToneFiles(link, layout);
+      let layout = namLayout(state.pedal?.firmware);
+      if (!state.pedal?.firmware?.version) {               // no version heard: NAM Loader 1.3 answers its IR (and 1.3.1 its slot) parameter
+        const p = await paramsRead(link, 6, 2).catch(() => null);
+        if (p?.length) layout = { slots: 30, irs: 12, irBank: true, play: p.length >= 2 };
+      }
+      const t = await readToneFiles(link, layout);
       state.nam = { bank: t.bank, cabs: t.cabs, legacy: t.legacy, files: true, layout, free: t.dir.freeSectors };
-      if (layout.irBank) state.nam.irs = toneIrs(await readToneRecord(link), t.bank, t.cabs);   // the IR each slot plays
+      if (layout.irBank) { state.nam.entries = await readToneRecord(link); state.nam.irs = toneIrs(state.nam.entries, t.bank, t.cabs); }   // each slot's settings, and the IR it plays
     }
     else state.nam = { bank: await readBank(link), legacy: [], files: false };
     state.nam.playing = await dspCaptureCrc(link);
@@ -314,6 +319,7 @@ function renderConn() {
   c.innerHTML = `<span class="dot ${dot}"></span><span>${esc(text)}</span>`;
   if ($("connlive").textContent !== text && !state.identifying) $("connlive").textContent = text;   // read out once per change
   $("connect").hidden = !state.problem;
+  $("connect").textContent = state.problem && window.launchpad?.relaunch ? "Restart Launchpad" : "Connect";
 }
 
 // Anything that slips through: shown (not lost in the console) and kept for the diagnostics.
@@ -361,7 +367,7 @@ $("conn").onclick = () => { if (narrow.matches) drawer(!$("app").classList.conta
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("app").classList.contains("panel-open")) { drawer(false); $("conn").focus(); } });
 document.addEventListener("pointerdown", (e) => { if ($("app").classList.contains("panel-open") && !e.target.closest("#panel, #conn")) drawer(false); });
 narrow.addEventListener("change", () => drawer(false));
-$("connect").onclick = () => start();
+$("connect").onclick = () => (state.problem && window.launchpad?.relaunch ? window.launchpad.relaunch() : start());
 
 // ------------------------------------------------------------------ updates (Electron only)
 
@@ -402,19 +408,24 @@ ctx.appVersion = "dev";
 
 async function start() {
   state.problem = null;
-  const m = location.hash.match(/^#sim(?:=(\w+))?(?:@([\d.]+))?/);       // e.g. #sim=nam@0.4.0
+  const m = location.hash.match(/^#sim(?:=(\w+))?(?:@([\d.]+))?(?:&v=([\d.]+))?/);   // e.g. #sim=nam@0.4.0, #sim=nam@0.8.0&v=1.3.1
   if (m) {
     const { SimPedal, fastTiming } = await import("./lib/sim.js");
     const F = await import("./lib/gp5flash.js");
     fastTiming();
     const kind = m[1] || "nam";
     const mode = kind === "stock" ? F.MODE_STOCK : kind === "loader" ? F.MODE_LOADER : F.MODE_OPEN;
-    state.ports = state.sim = new SimPedal({ mode, firmware: mode === F.MODE_OPEN ? kind : "nam", platform: m[2] || "0.2.1", identity: !!m[2] && m[2] >= "0.4" });
+    state.ports = state.sim = new SimPedal({ mode, firmware: mode === F.MODE_OPEN ? kind : "nam", platform: m[2] || "0.2.1", identity: !!m[2] && m[2] >= "0.4", namVersion: m[3] || null });
     ctx.sim = state.sim;
     window.__launchpad = { state, ctx };                 // for testing the page with the simulated pedal only
   } else {
-    try { state.ports = await webMidiPorts(); }
-    catch (e) {
+    let err = null;
+    for (let k = 0; k < 3; k++) {                         // macOS's MIDI service is sometimes not ready yet: try again
+      try { state.ports = await webMidiPorts(); err = null; break; }
+      catch (e) { err = e; console.warn("MIDI access:", e?.name, e?.message); await new Promise((r) => setTimeout(r, 1200)); }
+    }
+    if (err) {
+      const e = err;
       const linux = /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
       state.problemLinux = linux && !!navigator.requestMIDIAccess;    // Linux: no permission prompt; ALSA's sequencer is missing
       state.problem = !navigator.requestMIDIAccess ? "This system offers no MIDI"

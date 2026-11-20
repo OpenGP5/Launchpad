@@ -28,9 +28,13 @@ exports.setup = function setup() {
   });
   ipcMain.handle("copy-text", (_e, text) => { if (typeof text === "string" && text.length < 100000) clipboard.writeText(text); return true; });
   // The pedal speaks SysEx over USB-MIDI: allow MIDI for the app's own page only (file://), nothing else.
-  const ours = (wc) => wc && wc.getURL().startsWith("file://");
-  session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb((perm === "midi" || perm === "midiSysex") && ours(wc)));
-  session.defaultSession.setPermissionCheckHandler((wc, perm) => (perm === "midi" || perm === "midiSysex") && ours(wc));
+  // (the asking page's address from the request itself: early in a page's life its webContents may not report one yet)
+  const ours = (wc, url) => String(url || wc?.getURL() || "").startsWith("file://");
+  const midi = (perm) => perm === "midi" || perm === "midiSysex";
+  session.defaultSession.setPermissionRequestHandler((wc, perm, cb, details) => cb(midi(perm) && ours(wc, details?.requestingUrl)));
+  session.defaultSession.setPermissionCheckHandler((wc, perm, origin) => midi(perm) && ours(wc, origin));
+  // When the system's MIDI service failed to start, Chromium keeps that answer until the app restarts
+  ipcMain.on("relaunch", () => { app.relaunch(); app.exit(0); });
 
   ipcMain.handle("open-file", async (_e, { title, filters }) => {
     const r = await dialog.showOpenDialog({ title, filters, properties: ["openFile"] });

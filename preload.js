@@ -10,7 +10,8 @@ contextBridge.exposeInMainWorld("launchpad", {
   openLink: (url) => ipcRenderer.invoke("open-link", url),
   busy: (on) => ipcRenderer.send("busy", !!on),
   theme: (t) => ipcRenderer.send("theme", t),
-  windowAction: (act) => ipcRenderer.send("window", act),         // "minimize" | "maximize" (toggles) | "close"
+  windowAction: (act) => ipcRenderer.send("window", act),
+  relaunch: () => ipcRenderer.send("relaunch"),                   // start Launchpad again (MIDI failed to start)         // "minimize" | "maximize" (toggles) | "close"
   onWindowState: (fn) => ipcRenderer.on("window-state", (_e, s) => fn(s)),
   copyText: (t) => ipcRenderer.invoke("copy-text", t),
   valetonFirmware: (version, download) => ipcRenderer.invoke("valeton-firmware", { version, download }),

@@ -114,7 +114,8 @@ function screen(ctx) {
   if (fw === "nam") {
     const n = state.nam, i = n ? n.bank.findIndex((s) => s && s.crc === n.playing) : -1;
     const name = i >= 0 ? n.bank[i].name : n ? "built-in" : "";
-    return `<div class="scr-head" style="color:#ffc72c"><span>AMP</span><span style="color:#8a877f">${i >= 0 ? String(i + 1).padStart(2, "0") + " / 12" : ""}</span></div>
+    const N = n?.layout?.slots || 12, label = n?.layout?.irBank ? "NAM" : "AMP";      // the pedal's own header (1.3: NAM)
+    return `<div class="scr-head" style="color:#ffc72c"><span>${label}</span><span style="color:#8a877f">${i >= 0 ? String(i + 1).padStart(2, "0") + " / " + N : "built-in"}</span></div>
       <div class="scr-name"><span>${esc(name)}</span></div><div class="scr-foot" style="color:#ffc72c"><i></i></div>`;
   }
   if (fw === "dreamcatcher") {
@@ -161,7 +162,10 @@ export function pedalPanel(ctx) {
     if (p.firmware?.version) facts.push(["Version", p.firmware.version]);          // OpenGP5 1.0 firmwares say (metadata)
     if (p.firmware?.meta?.author) facts.push(["By", p.firmware.meta.author]);
     if (p.firmware?.platform) facts.push(["Platform", `OpenGP5 ${p.firmware.platform}`]);
-    if (fw === "nam" && state.nam) facts.push(["Tone slots", `${state.nam.bank.filter(Boolean).length} / 12`]);
+    if (fw === "nam" && state.nam) {
+      facts.push(["Captures", `${state.nam.bank.filter(Boolean).length} / ${state.nam.bank.length}`]);
+      if (state.nam.layout?.irBank) facts.push(["Cab IRs", `${(state.nam.cabs || []).filter(Boolean).length} / 12`]);
+    }
     if (fw === "dreamcatcher" && state.dream) facts.push(["Presets", `${state.dream.slots.filter(Boolean).length} / 8`]);
     facts.push(["USB", p.name.split(":")[0]]);
   }

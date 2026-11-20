@@ -1,6 +1,9 @@
 // Icons: Tabler Icons (outline), MIT License, https://tabler.io/icons (copyright Paweł Kuna).
 // icon(name) -> inline SVG markup, drawn in currentColor.
 const P = {
+  "plus": `<path d="M12 5l0 14" /> <path d="M5 12l14 0" />`,
+  "pencil": `<path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" /> <path d="M13.5 6.5l4 4" />`,
+  "replace": `<path d="M3 3m0 1a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1z" /> <path d="M15 15m0 1a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1z" /> <path d="M21 11v-3a2 2 0 0 0 -2 -2h-6l3 3m0 -6l-3 3" /> <path d="M3 13v3a2 2 0 0 0 2 2h6l-3 -3m0 6l3 -3" />`,
   "arrow-left": `<path d="M5 12l14 0" /> <path d="M5 12l6 6" /> <path d="M5 12l6 -6" />`,
   "restore": `<path d="M3.06 13a9 9 0 1 0 .49 -4.087" /> <path d="M3 4.001v5h5" /> <path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />`,
   "volume-off": `<path d="M15 8a5 5 0 0 1 1.912 4.934m-1.377 2.602a5 5 0 0 1 -.535 .464" /> <path d="M17.7 5a9 9 0 0 1 2.362 11.086m-1.676 2.299a9 9 0 0 1 -.686 .615" /> <path d="M9.069 5.054l.431 -.554a.8 .8 0 0 1 1.5 .5v2m0 4v8a.8 .8 0 0 1 -1.5 .5l-3.5 -4.5h-2a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1h2l1.294 -1.664" /> <path d="M3 3l18 18" />`,

@@ -12,8 +12,8 @@
   "file": "GP-5_nam-player.bin",
   "title": "NAM Loader",
   "description": "Plays NAM A2 captures at 48 kHz with a noise gate and EQ each, and any of 12 cab IRs. 30 slots, filled from the Tones page.",
-  "version": "v1.3.0 (OpenGP5 0.8.0)",
-  "sha256": "1cfeea4d4fb712cf3c1495c49779056f9bb6ec48491ac3c132d08aaa367d8cf3",
+  "version": "v1.3.1 (OpenGP5 0.8.0)",
+  "sha256": "ca08c75d76076a80b88932ddd285b5596183c2fba49832b537a06d8b1fc99d5b",
   "world": "w-nam",
   "id": "nam"
  }

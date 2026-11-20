@@ -18,7 +18,9 @@ export const IRS = 12;
 export function namLayout(firmware) {
   const [a, b] = String(firmware?.version || "0").split(".").map((x) => parseInt(x, 10) || 0);
   const irBank = firmware?.kind === "nam" && (a > 1 || (a === 1 && b >= 3));
-  return { slots: irBank ? 30 : SLOTS, irs: IRS, irBank };
+  const c = parseInt(String(firmware?.version || "").split(".")[2], 10) || 0;
+  const play = irBank && (a > 1 || b > 3 || c >= 1);              // 1.3.1: the computer can choose the slot playing
+  return { slots: irBank ? 30 : SLOTS, irs: IRS, irBank, play };
 }
 const DATA = RUNS[1].base;                          // the old data area = files run B
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -152,10 +154,65 @@ export function toneIrs(entries, bank, cabs) {
   });
 }
 export async function readToneRecord(link) { return parseToneRecord(latest(await readStore(link)).get(TONE_REC)?.data); }
-/** Slot i (its capture: crc) plays IR ir (-1: none) from now on; the pedal takes it at once. */
-export async function setToneIr(link, i, crc, ir) {
+/** A capture's settings as the firmware keeps them: { v: [gate, bass, mid, treble], ir } (ir as in the record). */
+export function toneEntry(entries, i, crc) {
+  const e = entries?.[i];
+  return e && e.crc === crc && crc ? { v: e.v.slice(), ir: e.ir } : { v: [0, 12, 12, 12], ir: 0 };
+}
+/** Change slot i's settings (its capture: crc) in the record: patch { v?: [4], ir?: -1 none | 0..11 }; the pedal
+ *  takes it at once (7E 0E). For the capture playing, live parameters are smoother (NAM_P). */
+export async function setToneEntry(link, i, crc, patch) {
   const entries = await readToneRecord(link), e = entries[i];
-  if (e.crc !== crc || !crc) { e.crc = crc; e.v = [0, 12, 12, 12]; }      // a capture without settings yet: as the firmware starts one
-  e.ir = ir < 0 ? 1 : ir + 2;
+  if (e.crc !== crc || !crc) { e.crc = crc; e.v = [0, 12, 12, 12]; e.ir = 0; }   // as the firmware starts one
+  if (patch.v) e.v = patch.v.slice();
+  if (patch.ir !== undefined) e.ir = patch.ir < 0 ? 1 : patch.ir + 2;
   await storeSave(link, TONE_REC, makeToneRecord(entries));
+  return entries;
+}
+/** Slot i (its capture: crc) plays IR ir (-1: none) from now on; the pedal takes it at once. */
+export async function setToneIr(link, i, crc, ir) { return setToneEntry(link, i, crc, { ir }); }
+
+// NAM Loader's parameters (its params.h): live settings 7E 10 / 7E 11
+export const NAM_P = { CAB: 0, TAPS: 1, GATE: 2, BASS: 3, MID: 4, TREBLE: 5, IR: 6, SLOT: 7 };
+
+/** Play slot i on the pedal (NAM Loader 1.3.1: parameter SLOT); waits until it plays. -1: the built-in capture. */
+export async function playSlot(link, i, crc) {
+  const { paramSet } = await import("./device.js");
+  if (!(await paramSet(link, NAM_P.SLOT, i + 1))) throw new Error("The pedal didn't take it. Does it run NAM Loader 1.3.1 or later?");
+  return crc ? waitPlaying(link, crc) : true;
+}
+
+// A capture file's name (blob: +8 CRC-32 of bytes 12.., +44 name, 24 bytes UTF-8, zero-padded)
+export function renamedBlob(blob, name) {
+  const b = blob.slice(), nm = new TextEncoder().encode(name).slice(0, 24);
+  b.fill(0, 44, 68); b.set(nm, 44);
+  new DataView(b.buffer).setUint32(8, crc32(b.subarray(12)), true);
+  return b;
+}
+/** Rename slot i's capture: a new file (the name is inside it, so its checksum changes) and its settings moved
+ *  to the new checksum. The pedal plays a capture as soon as it arrives: the one that played before plays again. */
+export async function renameCapture(link, i, name) {
+  const dir = await listFiles(link), f = dir.files.find((x) => x.owner === NAM_OWNER && x.name === toneName(i));
+  if (!f) throw new Error("That slot is empty.");
+  const old = await readFile(link, f), before = await dspCaptureCrc(link), oldCrc = blobInfo(old.subarray(0, 68)).crc;
+  const blob = renamedBlob(old, name), crc = blobInfo(blob.subarray(0, 68)).crc;
+  const entries = await readToneRecord(link);
+  if (entries[i].crc === oldCrc && oldCrc) { entries[i].crc = crc; await storeSave(link, TONE_REC, makeToneRecord(entries)); }
+  await writeFile(link, NAM_OWNER, toneName(i), blob);
+  await cmd(link, [0x7E, 0x0E, ...[NAM_OWNER & 255, (NAM_OWNER >>> 8) & 255, (NAM_OWNER >>> 16) & 255, NAM_OWNER >>> 24]], 500);
+  if (before === oldCrc) return waitPlaying(link, crc);                 // it was playing: it plays under its new name
+  await waitPlaying(link, crc);
+  const t = await readToneFiles(link, { slots: 30 }), k = t.bank.findIndex((s) => s && s.crc === before);
+  if (k >= 0) await playSlot(link, k, before);                          // back to the one that played
+  return true;
+}
+/** Rename IR k (its name is the 32 bytes after the taps). */
+export async function renameCab(link, k, name) {
+  const dir = await listFiles(link), f = dir.files.find((x) => x.owner === NAM_OWNER && x.name === cabFileName(k));
+  if (!f) throw new Error("That IR is empty.");
+  const d = (await readFile(link, f)).slice(), info = cabInfo(d.subarray(0, 16));
+  const at = 16 + info.tapBytes, out = new Uint8Array(Math.max(d.length, at + cabNameBytes));
+  out.set(d.subarray(0, at)); out.fill(0, at, at + cabNameBytes);
+  out.set(new TextEncoder().encode(name).slice(0, cabNameBytes - 1), at);
+  await writeFile(link, NAM_OWNER, cabFileName(k), out);
 }

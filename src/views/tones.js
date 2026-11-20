@@ -6,6 +6,7 @@ import { convertNam, putCapture, emptySlot, NotA2, SLOTS } from "../lib/gp5nam.j
 import { putToneFile, emptyToneFile, moveTonesToFiles, putCabFile, removeCabFile, shrinkCabs, setToneIr, IRS } from "../lib/namfiles.js";
 import { decodeIr, makeCabFile, CAB_TAPS, CAB_RATE } from "../lib/cabir.js";
 import { renderTone, mountTone } from "./namtone.js";
+import { renderBank, mountBank } from "./tonebank.js";
 
 const ui = { cap: null, err: null, sel: null, progress: null, result: null, converting: false,
             ir: null, irErr: null, irResult: null, irSel: null };   /* ir: { file, name, samples, seconds }; irSel: IR bank row */
@@ -18,8 +19,8 @@ const opts = () => ({ calibrate: pref("calibrate"), level: pref("level") });
 const db = (v) => `${v > 0 ? "+" : v < 0 ? "−" : "±"}${Math.abs(v).toFixed(1)} dB`;
 function levels(c) {                                        // what the switches did to this capture, in words
   const o = opts(), a = [];
-  if (o.calibrate) a.push(c.calibrated ? `input ${db(c.gainDb)} (matched to how it was recorded)` : "input as is (the file doesn't say how it was recorded)");
-  if (o.level) a.push(`loudness ${db(c.levelDb)}`);
+  if (o.calibrate) a.push(c.calibrated ? `input ${db(c.gainDb)}` : "input unchanged (no recording level in the file)");
+  if (o.level) a.push(`normalized ${db(c.levelDb)}`);
   return a.join(" · ");
 }
 const stem = (f) => f.replace(/\.nam$/i, "").replace(/_+/g, " ").replace(/\s+/g, " ").trim().slice(0, 24);
@@ -59,6 +60,7 @@ export default {
         <p class="muted">Needs NAM Loader.</p>
         <div style="margin-top:12px"><button class="btn primary" data-go="flash">${icon("bolt", 16)} Go to Flash</button></div></section>`;
     }
+    if (state.nam.layout?.irBank) return renderBank(ctx);          // NAM Loader 1.3 and later: the two-tab page
     const bank = state.nam.bank;
     if (ui.sel === null || ui.sel >= N) { const f = bank.findIndex((s) => !s); ui.sel = f >= 0 ? f : 0; }
     const irName = (k) => state.nam.cabs?.[k]?.name || `IR ${two(k)}`;
@@ -91,9 +93,9 @@ export default {
         ${ui.err ? `<div class="note bad">${icon("alert-triangle", 16)}<span>${esc(ui.err)}</span></div>` : ""}
         ${ui.cap ? `<label class="field">Name on the pedal<input type="text" id="capname" maxlength="24" value="${esc(ui.cap.name)}" spellcheck="false"></label>` : ""}
         <div class="stack" style="gap:8px">
-          <label class="row between" style="flex-wrap:nowrap;gap:12px"><span style="min-width:0"><b style="font-weight:600">Calibrate input</b><span class="faint" style="display:block;font-size:12.5px">Drive the capture as hard as the gear was played, when the file says how it was recorded</span></span>
+          <label class="row between" style="flex-wrap:nowrap;gap:12px"><span style="min-width:0"><b style="font-weight:600">Calibrate</b><span class="faint" style="display:block;font-size:12.5px">Matches the pedal's input to the level the capture was recorded at, so it reacts to your playing like the original gear. Only for files that include their recording level.</span></span>
             <input type="checkbox" class="switch" role="switch" data-pref="calibrate" ${pref("calibrate") ? "checked" : ""}></label>
-          <label class="row between" style="flex-wrap:nowrap;gap:12px"><span style="min-width:0"><b style="font-weight:600">Even out loudness</b><span class="faint" style="display:block;font-size:12.5px">Every tone equally loud. Off: as loud as the captured gear was</span></span>
+          <label class="row between" style="flex-wrap:nowrap;gap:12px"><span style="min-width:0"><b style="font-weight:600">Normalize</b><span class="faint" style="display:block;font-size:12.5px">Sets every capture to the same volume. Off: each one is as loud as the gear it captured.</span></span>
             <input type="checkbox" class="switch" role="switch" data-pref="level" ${pref("level") ? "checked" : ""}></label>
           <p class="faint" style="font-size:12.5px">They apply to captures you send from now on. NAM A2 captures only.</p>
         </div>
@@ -106,6 +108,7 @@ export default {
       </div></div>`;
   },
   mount(root, ctx) {
+    if (ctx.state.nam?.layout?.irBank && root.querySelector("#tb-panel")) { mountBank(root, ctx); return; }
     mountIr(root, ctx);
     if (root.querySelector("#namdrop")) mountTone(root, ctx);
     root.querySelectorAll("[data-go]").forEach((b) => b.onclick = () => ctx.go(b.dataset.go));
