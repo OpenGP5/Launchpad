@@ -5,7 +5,8 @@
 //     "pedal": { "mode": "open firmware", "firmware": "nam", "title": "...", "platform": "0.2.1" },
 //     "parts": [ part, ... ] }
 //
-// Parts (open firmware): "store" (the platform's settings store, raw, 8 KB), "data-area" (raw, 56 KB),
+// Parts (open firmware): "records" (any OpenGP5 1.0 firmware: every store record it owns: its parameters, presets,
+// settings), "store" (the platform's settings store, raw, 8 KB), "data-area" (raw, 56 KB),
 // "nam-bank" (each slot's capture file), "dreamcatcher-presets" (decoded, readable). Raw parts restore
 // everything as it was; the decoded ones restore just that firmware's things. Unknown parts are kept as they
 // are and skipped on restore, so newer backups still open in older versions.
@@ -36,7 +37,7 @@ export async function sha256(bytes) {
 // The settings-record / file owner id of each firmware (four letters)
 export const KIND_OWNER = { nam: "AMPB", dreamcatcher: "DRMC", tuner: "TUNR" };
 const KIND_TITLE = { stock: "Valeton's firmware", nam: "NAM Loader", dreamcatcher: "Dreamcatcher", tuner: "Strobe tuner", opengp5: "OpenGP5 firmware" };
-const kindTitle = (k) => KIND_TITLE[k] || k;
+const kindTitle = (k) => KIND_TITLE[k] || (k?.startsWith("fw:") ? k.slice(3) : k);
 
 // Back up what the installed firmware keeps, and nothing else: its files, its settings record, its tone bank
 // (NAM, old fixed slots) or its presets (Dreamcatcher, readable). Leftovers of other firmwares are not included.
@@ -44,6 +45,7 @@ const kindTitle = (k) => KIND_TITLE[k] || k;
 export async function makeBackup(link, pedal, appVersion, progress = () => {}) {
   if (pedal.mode === "stock firmware") return makeStockBackup(link, appVersion, progress);
   const kind = pedal.firmware?.kind ?? null, owner = KIND_OWNER[kind] || null, parts = [];
+  if (!owner && kind?.startsWith("fw:")) return makeGenericBackup(link, pedal, kind, appVersion, progress);
   if (!owner) throw new Error("Launchpad doesn't know what this firmware stores, so it can't back it up.");
   progress(0.05, "Reading settings");
   const store = await readStore(link), rec = latest(store).get(fourcc(owner));
@@ -97,6 +99,30 @@ async function makeStockBackup(link, appVersion, progress) {
 
 // What of a backup may go back onto a pedal running firmware `kind`: { ok, why, items: [{ id, label, part, ... }] }.
 // Only a backup made from that same firmware, only its own parts (its files, its settings, its tones / presets);
+// Any OpenGP5 1.0 firmware (kind "fw:<id>"): the storage is the installed firmware's alone (platform 0.5), so all
+// of it: every store record but the platform's own mark ("GP5O"), and every file, each with its own owner tag.
+const CLAIM = fourcc("GP5O");
+async function makeGenericBackup(link, pedal, kind, appVersion, progress) {
+  const parts = [], records = [];
+  progress(0.05, "Reading settings and presets");
+  for (const [id, r] of latest(await readStore(link))) {
+    if (id === CLAIM) continue;
+    records.push({ id, length: r.data.length, sha256: await sha256(r.data), data: b64(r.data) });
+  }
+  if (records.length) parts.push({ kind: "records", records });
+  progress(0.5, "Reading files");
+  const dir = await listFiles(link), files = [];
+  for (const f of dir.files) {
+    const bytes = await readFile(link, f);
+    files.push({ owner: idName(f.owner), name: f.name, length: f.len, sha256: await sha256(bytes), data: b64(bytes) });
+  }
+  if (files.length) parts.push({ kind: "files", files });
+  progress(1, "Done");
+  return { format: FORMAT, version: VERSION, created: new Date().toISOString(), app: `OpenGP5 Launchpad ${appVersion}`,
+           pedal: { mode: pedal.mode, firmware: kind, title: pedal.firmware?.title ?? null, version: pedal.firmware?.version ?? null,
+                    platform: pedal.firmware?.platform ?? null }, parts };
+}
+
 // never another firmware's, never raw areas. The screen lists these; the restore re-checks at the moment of writing.
 export function restorable(backup, kind) {
   const from = backup?.pedal?.firmware ?? null, owner = KIND_OWNER[kind] || null;
@@ -108,6 +134,14 @@ export function restorable(backup, kind) {
     for (const p of backup.parts || []) if (p.kind === "valeton-presets") for (const q of p.presets || [])
       items.push({ id: `valeton:${q.n}`, kind: "valeton", label: `Preset ${String(q.n - 1).padStart(2, "0")}: ${q.name || "(no name)"}`, bad: !!q.bad, owner: "stock", preset: q });
     return { ok: true, why: items.length ? "" : "This backup holds no Valeton presets.", items };
+  }
+  if (!owner && kind.startsWith("fw:")) {                      // any 1.0 firmware: all its records and files
+    const items = [];
+    for (const p of backup.parts || []) {
+      if (p.kind === "records") items.push({ id: "records", kind: "records", label: `Settings and presets (${(p.records || []).length} records)`, bad: !!p.bad, owner: kind, part: p });
+      else if (p.kind === "files") for (const f of p.files || []) items.push({ id: `file:${f.owner}/${f.name}`, kind: "file", label: f.name, bad: !!f.bad, owner: kind, file: f });
+    }
+    return { ok: true, why: items.length ? "" : "This backup holds nothing to restore.", items };
   }
   if (!owner) return { ok: false, why: `Launchpad doesn't know what ${kindTitle(kind)} stores.`, items: [] };
   const items = [];
@@ -168,6 +202,13 @@ export async function parseBackup(bytes) {
             !f.bytes || f.bytes.length !== f.length || f.bytes.length > TOTAL_SECTORS * SECTOR || (await sha256(f.bytes)) !== f.sha256) {
           f.bad = true; problems.push(`file ${typeof f.name === "string" ? f.name : "?"}: damaged`);
         }
+      }
+    } else if (p.kind === "records") {
+      if (!Array.isArray(p.records)) { p.records = []; bad(p, "settings and presets: damaged"); continue; }
+      for (const r of p.records) {
+        r.bytes = r && decode(r.data);
+        if (!r || !Number.isInteger(r.id) || r.id < 0 || r.id > 0xFFFFFFFF || !r.bytes || r.bytes.length !== r.length || r.bytes.length > 1024 ||
+            (await sha256(r.bytes)) !== r.sha256) { p.bad = true; problems.push("settings and presets: damaged"); break; }
       }
     } else if (p.kind === "settings") {
       p.bytes = decode(p.data);

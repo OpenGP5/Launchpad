@@ -1,23 +1,27 @@
 // OpenGP5 Launchpad: the shell. Finds the pedal (every 1.5 s), identifies what it runs, and hands the
 // sections (views/) a context to work with: the state, one shared connection, dialogs and files.
 // Start the page with #sim (or #sim=dreamcatcher, #sim=tuner, #sim=stock, #sim=loader) for a simulated pedal.
+import { INDEX_URL } from "./lib/catalog.js";
 import { webMidiPorts } from "./lib/webmidi.js";
 import { locate, identify, readStore, readControls, paramsRead, MODE_OPEN, MODE_STOCK, MODE_LOADER, MODE_SILENT } from "./lib/device.js";
 import { readBank, dspCaptureCrc } from "./lib/gp5nam.js";
-import { readToneFiles } from "./lib/namfiles.js";
+import { readToneFiles, namLayout, readToneRecord, toneIrs } from "./lib/namfiles.js";
 import { listPresets, currentPreset, firmwareConstant, readGlobals, OUTPUT_LEVEL } from "./lib/stockpresets.js";
 import { latest, IDS, DC, decodeDreamcatcher } from "./lib/gp5store.js";
 import { icon } from "./lib/icons.js";
 import home from "./views/home.js";
 import flash from "./views/flash.js";
 import tones from "./views/tones.js";
+import live from "./views/live.js";
+import { readDescriptions } from "./lib/params.js";
 import presets from "./views/presets.js";
 import backups from "./views/backups.js";
 import mods from "./views/mods.js";
+import dev from "./views/dev.js";
 import settings, { applyTheme, savedTheme } from "./views/settings.js";
 import { pedalPanel, fitScreen, setKnob } from "./views/pedal.js";
 
-const VIEWS = [home, flash, tones, presets, backups, mods];
+const VIEWS = [home, flash, tones, live, presets, backups, mods, dev];
 const ALL = [...VIEWS, settings];
 const $ = (id) => document.getElementById(id);
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -121,6 +125,25 @@ const ctx = {
     } else if (quiet) return null;
     return ctx.openFile("Choose Valeton's firmware V1.0.6", [{ name: "GP-5 firmware", extensions: ["bin", "hfw"] }]);
   },
+  // the firmware catalog: { index, fresh, error } (the desktop app keeps a copy for when offline)
+  async catalog() {
+    if (window.launchpad?.catalog) return window.launchpad.catalog();
+    try {                                       // (the browser preview: a test catalog in _dev/ when there is one)
+      let r = await fetch("_dev/opengp5-catalog.json", { cache: "no-cache" }).catch(() => null);
+      if (!r || !r.ok) r = await fetch(INDEX_URL, { cache: "no-cache" });
+      return { index: await r.json(), fresh: true };
+    }
+    catch (e) { return { index: null, fresh: false, error: e.message }; }
+  },
+  // a release the catalog lists, its size and checksum already checked (in the desktop app, by the main process)
+  async catalogDownload(url, sha256) {
+    if (window.launchpad?.catalogDownload) {
+      try { return await window.launchpad.catalogDownload(url, sha256); }
+      catch (e) { throw new Error(String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, "")); }
+    }
+    const r = await fetch(url); if (!r.ok) throw new Error(`the download failed (${r.status})`);
+    return new Uint8Array(await r.arrayBuffer());
+  },
   // a file that ships with the app (e.g. firmware/manifest.json)
   async appFile(rel) {
     if (window.launchpad) return window.launchpad.appFile(rel);
@@ -156,7 +179,11 @@ const ctx = {
   // platform 0.4+: the tones are files (and maybe some still the old way, to move); before: fixed slots
   filesMode: () => atLeast(state.pedal?.firmware?.platform, "0.4.0"),
   async loadNam(link) {
-    if (ctx.filesMode()) { const t = await readToneFiles(link); state.nam = { bank: t.bank, cabs: t.cabs, legacy: t.legacy, files: true }; }
+    if (ctx.filesMode()) {
+      const layout = namLayout(state.pedal?.firmware), t = await readToneFiles(link, layout);
+      state.nam = { bank: t.bank, cabs: t.cabs, legacy: t.legacy, files: true, layout, free: t.dir.freeSectors };
+      if (layout.irBank) state.nam.irs = toneIrs(await readToneRecord(link), t.bank, t.cabs);   // the IR each slot plays
+    }
     else state.nam = { bank: await readBank(link), legacy: [], files: false };
     state.nam.playing = await dspCaptureCrc(link);
   },
@@ -167,9 +194,9 @@ const ctx = {
     // live settings (platform 0.5.4 + a Dreamcatcher that answers them); the preset version the firmware reads:
     // 3 with live settings (1.2), else what's stored (1 = 1.0 / 1.1)
     state.dreamLive = atLeast(state.pedal?.firmware?.platform, "0.5.4") && (await paramsRead(link, 0, 1))?.length === 1;
-    // version 4 (names) when the firmware says so (DC.P.FORMAT); an earlier 1.2 build reads 3
+    // version 5 (1.4: sync) or 4 (names) when the firmware says so (DC.P.FORMAT); an earlier 1.2 build reads 3
     const fmt = state.dreamLive ? (await paramsRead(link, DC.P.FORMAT, 1))?.[0] : null;
-    state.dreamFormat = state.dreamLive ? (fmt >= 4 ? 4 : 3) : state.dream?.version || 1;
+    state.dreamFormat = state.dreamLive ? (fmt >= 5 ? 5 : fmt >= 4 ? 4 : 3) : state.dream?.version || 1;
   },
   // Valeton's firmware: the preset list (12 40), the current preset, the firmware's version constant
   async loadStock(link) {
@@ -217,6 +244,7 @@ async function pollLocked() {
   if (!same) {
     await dropLink();
     state.pedal = d ? { ...d, firmware: null } : null;
+    state.params = null;                                    // the Live page's description (OpenGP5 1.0 firmwares)
     state.pedalSerial = (state.pedalSerial || 0) + 1;       // views drop drafts that belong to another pedal
     render();
     if (d && d.mode === MODE_OPEN) {
@@ -224,6 +252,7 @@ async function pollLocked() {
       state.identifying = 0.01; render();
       state.pedal.firmware = await identify(state.link, (f) => { state.identifying = f; renderConn(); });
       state.identifying = 0;
+      if (state.pedal.firmware.meta) state.params = { desc: await readDescriptions(state.link) };   // 1.0: any firmware's settings
       if (state.pedal.firmware.kind === "nam") await ctx.loadNam(state.link);
       if (state.pedal.firmware.kind === "dreamcatcher") await ctx.loadDream(state.link);
       render();
@@ -386,7 +415,10 @@ async function start() {
   } else {
     try { state.ports = await webMidiPorts(); }
     catch (e) {
-      state.problem = navigator.requestMIDIAccess ? "MIDI access was not allowed" : "This system offers no MIDI";
+      const linux = /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
+      state.problemLinux = linux && !!navigator.requestMIDIAccess;    // Linux: no permission prompt; ALSA's sequencer is missing
+      state.problem = !navigator.requestMIDIAccess ? "This system offers no MIDI"
+        : linux ? "Linux's MIDI service isn't available" : "MIDI access was not allowed";
       render(); return;
     }
   }

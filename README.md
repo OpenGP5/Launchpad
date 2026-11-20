@@ -7,13 +7,15 @@ the tools that fit what the pedal runs.
 | Section | What it does | Works with |
 |---|---|---|
 | Home | what the pedal runs and what's on it | everything |
-| Flash | the bundled firmwares, your own build, or Valeton's firmware; every image is checked before writing | any, including update mode |
-| Tones | 12 slots for NAM captures: drop a `.nam` file, name it, send it; a cab IR (`.wav`) per slot; input calibration and even loudness, each with a switch | [NAM Loader](https://github.com/OpenGP5/NAM-Loader) 1.1 |
-| Presets | 8 presets: edit live with the pedal's own settings, name, rearrange, export and import | [Dreamcatcher](https://github.com/OpenGP5/Dreamcatcher) 1.2 |
+| Flash | the bundled firmwares, more from [OpenGP5's catalog](https://github.com/OpenGP5/OpenGP5/blob/main/catalog/README.md) (downloaded and checked against it), your own build, or Valeton's firmware; every image is checked before writing | any, including update mode |
+| Tones | 30 slots for NAM captures (12 before NAM Loader 1.3): drop a `.nam` file, name it, send it; input calibration and even loudness, each with a switch; 12 cab IRs (`.wav`), any capture plays any of them (1.1 and 1.2: one per slot); each capture's gate and EQ | [NAM Loader](https://github.com/OpenGP5/NAM-Loader) 1.1, all of it 1.3 |
+| Presets | 8 presets: edit live with the pedal's own settings, name, rearrange, export and import; tempo sync (Free / Sync, BPM) with 1.4 | [Dreamcatcher](https://github.com/OpenGP5/Dreamcatcher) 1.2 |
+| Live | the settings of any firmware on OpenGP5 1.0, made from the firmware's own description: change the sound as you turn | an OpenGP5 0.7+ firmware |
 | Presets (Valeton) | the 100 stock presets: browse, edit every setting by name, hear changes live, rename, reset, export and import | Valeton firmware V1.0.6 |
-| Backups | one `.gp5backup` file with the installed firmware's data; restores onto the same firmware | OpenGP5 firmwares, Valeton firmware |
+| Backups | one `.gp5backup` file with the installed firmware's data (any OpenGP5 1.0 firmware's settings and files); restores onto the same firmware | OpenGP5 firmwares, Valeton firmware |
 | Mods | small patches for Valeton's firmware, applied to your own copy of it; undo puts the original back | Valeton firmware V1.0.6 |
 | Settings | theme (system, light, dark), update check, recovery steps | |
+| Developer | for firmware authors: the pedal's log (`gp5_log` on both processors) as it comes, and the load and memory of both processors | an OpenGP5 0.7+ firmware |
 
 > **Alpha.** Flashing can go wrong. Read OpenGP5's
 > [getting-started guide](https://github.com/OpenGP5/OpenGP5/blob/main/GETTING-STARTED.md), especially

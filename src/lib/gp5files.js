@@ -48,15 +48,40 @@ export async function scanFiles(read) {
 
 export const sectorsFor = (len) => Math.ceil((HDR + len) / SECTOR);
 
-// Where a new file of `len` bytes goes: { run, sector, addr, sectors } (first fit), or null if it doesn't fit.
+// Where a new file of `len` bytes goes: { run, sector, addr, sectors }, or null if it doesn't fit. Best fit: the
+// smallest gap it fits (the first of those), so one-sector files fill odd gaps and leave pairs for two-sector ones
+// (NAM Loader 1.3 packs 30 two-sector captures and 12 one-sector IRs into the 73 sectors).
 // avoidRuns: runs not to use (e.g. run B while it still holds the NAM player's tones the old way)
 export function placeFile(dir, len, { avoidRuns = [] } = {}) {
   const n = sectorsFor(len);
+  let best = null;
   for (let r = 0; r < RUNS.length; r++) if (!avoidRuns.includes(r))
-    for (let s = 0; s + n <= RUNS[r].sectors; s++) {
-      let ok = true;
-      for (let i = 0; i < n && ok; i++) ok = !dir.used.has(r * 64 + s + i);
-      if (ok) return { run: r, sector: s, addr: RUNS[r].base + s * SECTOR, sectors: n };
+    for (let s = 0; s < RUNS[r].sectors;) {
+      if (dir.used.has(r * 64 + s)) { s++; continue; }
+      let g = 0;
+      while (s + g < RUNS[r].sectors && !dir.used.has(r * 64 + s + g)) g++;
+      if (g >= n && (!best || g < best.gap)) best = { run: r, sector: s, gap: g };
+      s += g;
+    }
+  return best && { run: best.run, sector: best.sector, addr: RUNS[best.run].base + best.sector * SECTOR, sectors: n };
+}
+
+// Two free sectors side by side, made by moving one one-sector file into a free sector elsewhere: the move
+// { file, to } (to: a placement), or null. For when the free sectors are all single (best fit keeps that rare).
+export function planMove(dir, n, { avoidRuns = [] } = {}) {
+  if (n !== 2 || dir.freeSectors < 2) return null;
+  const owner = new Map();
+  for (const f of dir.all) for (let i = 0; i < f.sectors; i++) owner.set(f.run * 64 + f.sector + i, f);
+  const freeAt = (k) => !dir.used.has(k);
+  for (let r = 0; r < RUNS.length; r++) if (!avoidRuns.includes(r))
+    for (let s = 0; s + 1 < RUNS[r].sectors; s++) {
+      const a = r * 64 + s, b = a + 1, k = freeAt(a) ? b : freeAt(b) ? a : -1, f = owner.get(k);
+      if (k < 0 || !f || f.sectors !== 1 || !dir.files.includes(f)) continue;
+      for (let r2 = 0; r2 < RUNS.length; r2++) if (!avoidRuns.includes(r2))
+        for (let s2 = 0; s2 < RUNS[r2].sectors; s2++) {
+          const c = r2 * 64 + s2;
+          if (c !== a && c !== b && freeAt(c)) return { file: f, to: { run: r2, sector: s2, addr: RUNS[r2].base + s2 * SECTOR, sectors: 1 } };
+        }
     }
   return null;
 }
@@ -86,11 +111,33 @@ export async function readFile(link, f) {
   return data;
 }
 
-// Write (or replace) a file: new copy first, header last, read back, then the old copies go.
+// Write (or replace) a file: new copy first, header last, read back, then the old copies go. When there's no room
+// for a second copy, the old one goes first (replacing a capture in a full bank: a power cut then leaves the slot
+// empty instead of keeping the old one); when the free sectors are scattered, a one-sector file moves to join them.
 export async function writeFile(link, owner, name, data, progress = () => {}, opts = {}) {
-  const dir = await listFiles(link);
-  const where = placeFile(dir, data.length, opts);
-  if (!where) throw new DeviceError(`Not enough room on the pedal (needs ${sectorsFor(data.length) * 4} KB, ${dir.freeSectors * 4} KB free).`);
+  let dir = await listFiles(link), where = opts.at || placeFile(dir, data.length, opts);
+  const n = sectorsFor(data.length);
+  if (!where) {
+    const mv = planMove(dir, n, opts);
+    if (mv) {
+      const f = mv.file;
+      await writeFile(link, f.owner, f.name, await readFile(link, f), () => {}, { at: mv.to });
+      dir = await listFiles(link); where = placeFile(dir, data.length, opts);
+    }
+  }
+  if (!where) {
+    const old = dir.all.filter((f) => f.owner === owner && f.name === name);
+    if (old.length) {
+      const used = new Set(dir.used);
+      for (const f of old) for (let i = 0; i < f.sectors; i++) used.delete(f.run * 64 + f.sector + i);
+      const without = { ...dir, all: dir.all.filter((f) => !old.includes(f)), files: dir.files.filter((f) => !old.includes(f)), used, freeSectors: TOTAL_SECTORS - used.size };
+      if (placeFile(without, data.length, opts) || planMove(without, n, opts)) {
+        for (const f of old) await erase(link, f.addr);
+        return writeFile(link, owner, name, data, progress, opts);
+      }
+    }
+  }
+  if (!where) throw new DeviceError(`Not enough room on the pedal (needs ${n * 4} KB, ${dir.freeSectors * 4} KB free).`);
   const header = makeHeader({ seq: dir.top + 1, owner, name, data, sectors: where.sectors });
   const pad = (4 - (data.length % 4)) % 4, body = new Uint8Array(data.length + pad).fill(0xFF); body.set(data);
   for (let i = 0; i < where.sectors; i++) await erase(link, where.addr + i * SECTOR);

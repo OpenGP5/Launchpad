@@ -9,6 +9,10 @@ const { app, BrowserWindow, Menu, dialog, shell, nativeTheme } = require("electr
 const path = require("node:path");
 const appIcon = path.join(__dirname, "src", "assets", "app-icon.png");
 
+// development only (not packaged): LAUNCHPAD_USERDATA=<folder> keeps this run's data (preferences, the catalog's copy,
+// downloads) apart from the real app's
+if (!app.isPackaged && process.env.LAUNCHPAD_USERDATA) app.setPath("userData", process.env.LAUNCHPAD_USERDATA);
+
 if (!app.requestSingleInstanceLock()) { app.quit(); }
 else {
   let win = null;

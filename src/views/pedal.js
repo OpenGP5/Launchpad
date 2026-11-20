@@ -158,6 +158,8 @@ export function pedalPanel(ctx) {
   if (p) {
     facts.push(["Running", p.mode === MODE_OPEN ? (p.firmware?.title ?? "OpenGP5 firmware") : p.mode === MODE_STOCK ? "Valeton firmware" :
                 p.mode === MODE_LOADER ? "Update mode" : "Not answering"]);
+    if (p.firmware?.version) facts.push(["Version", p.firmware.version]);          // OpenGP5 1.0 firmwares say (metadata)
+    if (p.firmware?.meta?.author) facts.push(["By", p.firmware.meta.author]);
     if (p.firmware?.platform) facts.push(["Platform", `OpenGP5 ${p.firmware.platform}`]);
     if (fw === "nam" && state.nam) facts.push(["Tone slots", `${state.nam.bank.filter(Boolean).length} / 12`]);
     if (fw === "dreamcatcher" && state.dream) facts.push(["Presets", `${state.dream.slots.filter(Boolean).length} / 8`]);

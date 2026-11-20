@@ -3,6 +3,7 @@
 // firmware also leaves Valeton's preset area as Valeton expects it (erased presets = factory ones, and its
 // preset order table 0, 1, .. 99, without which saving presets on stock silently does nothing).
 import { inspect } from "./gp5flash.js";
+import { parseMeta, kindOf } from "./fwmeta.js";
 import { cmd, FIRMWARES } from "./device.js";
 import { flashRead } from "./gp5nam.js";
 
@@ -24,7 +25,9 @@ export function imageKind(bytes) {
   const { sections, lines } = inspect(bytes);
   const app = sections.find(([t]) => t === 0x62);
   if (!app) return { kind: null, title: "this image", platform: null };
-  const code = app[1], v = findText(code, "OPENGP5 ");
+  const code = app[1], meta = parseMeta(code);
+  if (meta) return { kind: kindOf(meta.id), title: meta.name, version: meta.version, meta, platform: meta.built_on || null };
+  const v = findText(code, "OPENGP5 ");
   if (v < 0) return { kind: "stock", title: lines.find((l) => l.type === 0x62)?.stock ? "Valeton's firmware" : "a Valeton-based firmware", platform: null };
   const platform = new TextDecoder().decode(code.subarray(v + 8, v + 20)).split("\0")[0];
   for (const [kind, f] of Object.entries(FIRMWARES))

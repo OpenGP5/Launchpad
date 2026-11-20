@@ -1,12 +1,14 @@
-// Tones: NAM Loader's 12 slots. Drop a .nam (A2 captures only), name it, choose a slot, send; the
+// Tones: NAM Loader's slots (12; 30 from 1.3). Drop a .nam (A2 captures only), name it, choose a slot, send; the
 // pedal plays it at once. Converting happens here (gp5nam.js, the same bytes as the Python converter).
-// Each slot can have a cab IR of its own (NAM Loader 1.1: file "cab-NN"; lib/cabir.js makes it from a .wav).
+// Cab IRs (lib/cabir.js makes them from a .wav): NAM Loader 1.1 .. 1.2, one per slot ("cab-NN" goes with slot NN);
+// 1.3, a bank of 12 and each capture plays the one chosen for it (namfiles.js setToneIr), as on the pedal's CAB page.
 import { convertNam, putCapture, emptySlot, NotA2, SLOTS } from "../lib/gp5nam.js";
-import { putToneFile, emptyToneFile, moveTonesToFiles, putCabFile, removeCabFile } from "../lib/namfiles.js";
+import { putToneFile, emptyToneFile, moveTonesToFiles, putCabFile, removeCabFile, shrinkCabs, setToneIr, IRS } from "../lib/namfiles.js";
 import { decodeIr, makeCabFile, CAB_TAPS, CAB_RATE } from "../lib/cabir.js";
+import { renderTone, mountTone } from "./namtone.js";
 
 const ui = { cap: null, err: null, sel: null, progress: null, result: null, converting: false,
-            ir: null, irErr: null, irResult: null };   /* ir: { file, name, samples, seconds } */
+            ir: null, irErr: null, irResult: null, irSel: null };   /* ir: { file, name, samples, seconds }; irSel: IR bank row */
 const two = (i) => String(i + 1).padStart(2, "0");
 // the two conversion switches (as the NAM plugin's "Calibrate input" and "Normalize output"), kept on this computer
 const PREFS = { calibrate: "nam-calibrate", level: "nam-level" };
@@ -48,21 +50,25 @@ export default {
   available: (state) => state.pedal?.firmware?.kind === "nam",
   render(ctx) {
     const { state, esc, icon } = ctx, fw = state.pedal?.firmware?.kind;
-    const used = state.nam ? state.nam.bank.filter(Boolean).length : 0;
+    const used = state.nam ? state.nam.bank.filter(Boolean).length : 0, N = state.nam?.layout?.slots || SLOTS;
+    const free = state.nam?.free;
     const head = ctx.banner("w-nam", "wave-sine", "Tones", "",
-      { chips: fw === "nam" && state.nam ? [`${used} of ${SLOTS} slots in use`] : [] });
+      { chips: fw === "nam" && state.nam ? [`${used} of ${N} slots in use`, ...(free !== undefined ? [`${free * 4} KB free`] : [])] : [] });
     if (fw !== "nam" || !state.nam) {
       return head + `<section class="card w-nam" style="max-width:640px"><div class="card-head"><h2>${state.pedal ? "This firmware has no tone slots" : "No pedal connected"}</h2></div>
         <p class="muted">Needs NAM Loader.</p>
         <div style="margin-top:12px"><button class="btn primary" data-go="flash">${icon("bolt", 16)} Go to Flash</button></div></section>`;
     }
     const bank = state.nam.bank;
-    if (ui.sel === null || ui.sel >= SLOTS) { const f = bank.findIndex((s) => !s); ui.sel = f >= 0 ? f : 0; }
+    if (ui.sel === null || ui.sel >= N) { const f = bank.findIndex((s) => !s); ui.sel = f >= 0 ? f : 0; }
+    const irName = (k) => state.nam.cabs?.[k]?.name || `IR ${two(k)}`;
     const rows = bank.map((s, i) => `<div class="item pick ${i === ui.sel ? "sel" : ""}" data-slot="${i}" role="button" tabindex="${i === ui.sel ? 0 : -1}" aria-pressed="${i === ui.sel}" ${s ? 'aria-keyshortcuts="Delete"' : ""} aria-label="Slot ${two(i)}: ${s ? esc(s.name || "no name") : "empty"}">
         <span class="n">${two(i)}</span>
         <span class="main"><span class="name ${s ? "" : "empty"}">${s ? esc(s.name || "(no name)") : "empty"}</span></span>
         ${s && s.old ? '<span class="pill" title="Old storage: move it with the button above">old</span>' : ""}
-        ${state.nam.cabs?.[i] ? `<span class="pill" title="Cab IR: ${esc(state.nam.cabs[i].name || "(no name)")}">${icon("device-speaker", 12)} cab</span>` : ""}
+        ${state.nam.layout?.irBank
+          ? (s && state.nam.irs?.[i] >= 0 ? `<span class="pill" title="Plays the cab IR “${esc(irName(state.nam.irs[i]))}”">${icon("device-speaker", 12)} ${two(state.nam.irs[i])}</span>` : "")
+          : state.nam.cabs?.[i] ? `<span class="pill" title="Cab IR: ${esc(state.nam.cabs[i].name || "(no name)")}">${icon("device-speaker", 12)} cab</span>` : ""}
         ${s && s.crc === state.nam.playing ? `<span class="pill world">${icon("player-play", 12)} playing</span>` : ""}
         ${s ? `<button class="btn small ghost icon-only" data-rm="${i}" tabindex="${i === ui.sel ? 0 : -1}" aria-label="Empty slot ${i + 1}" title="Empty this slot (Delete)">${icon("trash", 15)}</button>` : ""}
       </div>`).join("");
@@ -72,9 +78,10 @@ export default {
         <b>${legacy.length} tone${legacy.length === 1 ? " is" : "s are"} in the old storage.</b> Move ${legacy.length === 1 ? "it" : "them"} once (about ${legacy.length * 3} s).</span>
         <button class="btn primary" data-act="move" ${busy ? "disabled" : ""}>Move ${legacy.length === 1 ? "it" : "them"}</button></div>` : "";
     return head + move + `<div class="cols w-nam" style="--n:2">
-      <section class="card"><div class="card-head"><h2>${icon("list", 18)} Slots</h2><span class="faint mono">${used}/${SLOTS}</span></div>
+      <section class="card"><div class="card-head"><h2>${icon("list", 18)} Slots</h2><span class="faint mono">${used}/${N}</span></div>
         <div class="list">${rows}</div></section>
       <div class="stack" style="gap:var(--gap)">
+      ${renderTone(ctx)}
       <section class="card"><div class="card-head"><h2>${icon("upload", 18)} Add a capture</h2></div><div class="stack">
         <div class="drop" id="namdrop">${icon("file-music", 26)}
           <div style="flex:1;min-width:0">${ui.converting ? "Converting…" : ui.cap
@@ -100,6 +107,7 @@ export default {
   },
   mount(root, ctx) {
     mountIr(root, ctx);
+    if (root.querySelector("#namdrop")) mountTone(root, ctx);
     root.querySelectorAll("[data-go]").forEach((b) => b.onclick = () => ctx.go(b.dataset.go));
     if (!root.querySelector("#namdrop")) return;
     const pick = (i) => { ui.sel = i; ctx.render(); document.querySelector(`[data-slot="${i}"]`)?.focus(); };
@@ -170,6 +178,7 @@ export default {
 function irCard(ctx, bank, busy) {
   const { state, esc, icon } = ctx, cab = state.nam.cabs?.[ui.sel], tone = bank[ui.sel];
   if (!state.nam.files) return "";                          // cab IRs live in storage files (platform 0.4 and later)
+  if (state.nam.layout?.irBank) return irChoiceCard(ctx, bank, busy) + irBankCard(ctx, busy);
   const ms = (n) => `${Math.round((n / CAB_RATE) * 1000)} ms`;
   return `<section class="card"><div class="card-head"><h2>${icon("device-speaker", 18)} Cab IR for slot ${two(ui.sel)}</h2></div><div class="stack">
     <div class="row between" style="flex-wrap:nowrap">
@@ -190,6 +199,7 @@ function irCard(ctx, bank, busy) {
 }
 
 function mountIr(root, ctx) {
+  if (ctx.state.nam?.layout?.irBank) { mountIrBank(root, ctx); return; }
   const drop = root.querySelector("#irdrop");
   if (!drop) return;
   root.querySelector('[data-act="iropen"]').onclick = async () => {
@@ -218,5 +228,108 @@ function mountIr(root, ctx) {
     if (!old || !(await ctx.confirm(`Remove slot ${two(slot)}'s cab IR?`, `“${old.name}” is removed; the capture plays without a cab.`, "Remove", true))) return;
     try { await ctx.withLink("Removing a cab IR", async (link) => { await removeCabFile(link, slot); await ctx.loadNam(link); }); ctx.toast(`Slot ${two(slot)}: cab IR removed`); }
     catch (e) { ui.irResult = { ok: false, text: e.message }; ctx.render(); }
+  });
+}
+
+// ---- NAM Loader 1.3: which IR the selected capture plays, and the bank of 12 IRs
+const ms = (n) => `${Math.round((n / CAB_RATE) * 1000)} ms`;
+function irChoiceCard(ctx, bank, busy) {
+  const { state, esc, icon } = ctx, tone = bank[ui.sel], cur = state.nam.irs?.[ui.sel] ?? -1, cabs = state.nam.cabs || [];
+  const opts = [`<option value="-1" ${cur < 0 ? "selected" : ""}>None</option>`, ...cabs.map((c, k) =>
+    `<option value="${k}" ${k === cur ? "selected" : ""} ${c ? "" : "disabled"}>${two(k)} ${c ? esc(c.name || "(no name)") : "(empty)"}</option>`)].join("");
+  return `<section class="card"><div class="card-head"><h2>${icon("device-speaker", 18)} Cab IR for slot ${two(ui.sel)}</h2></div><div class="stack">
+    ${tone ? `<label class="field">“${esc(tone.name)}” plays<select id="irpick" ${busy ? "disabled" : ""}>${opts}</select></label>
+      <p class="faint" style="font-size:12.5px;margin:0">Kept with the capture on the pedal. On the pedal: turn PARA to the CAB page, push it, pick one.</p>`
+      : `<p class="muted" style="margin:0">Put a capture in this slot first.</p>`}
+  </div></section>`;
+}
+function irBankCard(ctx, busy) {
+  const { state, esc, icon } = ctx, cabs = state.nam.cabs || [], irs = state.nam.irs || [];
+  if (ui.irSel === null || ui.irSel >= IRS) { const f = cabs.findIndex((c) => !c); ui.irSel = f >= 0 ? f : 0; }
+  const sel = cabs[ui.irSel], old = cabs.filter((c) => c?.format === 1).length;
+  const users = (k) => irs.filter((x) => x === k).length;
+  const rows = cabs.map((c, k) => `<div class="item pick ${k === ui.irSel ? "sel" : ""}" data-irrow="${k}" role="button" tabindex="${k === ui.irSel ? 0 : -1}" aria-pressed="${k === ui.irSel}" aria-label="IR ${two(k)}: ${c ? esc(c.name || "no name") : "empty"}">
+      <span class="n">${two(k)}</span>
+      <span class="main"><span class="name ${c ? "" : "empty"}">${c ? esc(c.name || "(no name)") : "empty"}</span>${c && users(k) ? `<span class="sub">${users(k)} capture${users(k) === 1 ? "" : "s"}</span>` : ""}</span>
+      ${c?.format === 1 ? '<span class="pill" title="Old format: 8 KB instead of 4 KB">old</span>' : ""}
+    </div>`).join("");
+  return `<section class="card"><div class="card-head"><h2>${icon("device-speaker", 18)} Cab IRs</h2><span class="faint mono">${cabs.filter(Boolean).length}/${IRS}</span></div><div class="stack">
+    ${old ? `<div class="note warn" style="align-items:center"><span style="flex:1">${icon("info-circle", 16)} ${old} IR${old === 1 ? " is" : "s are"} in the old format, twice the room. Same sound in the new one.</span>
+      <button class="btn small" data-act="irshrink" ${busy ? "disabled" : ""}>Make ${old === 1 ? "it" : "them"} smaller</button></div>` : ""}
+    <div class="list">${rows}</div>
+    <div class="row between" style="flex-wrap:nowrap">
+      <span class="muted" style="min-width:0">${sel ? `IR ${two(ui.irSel)}: <b style="color:var(--text)">${esc(sel.name || "(no name)")}</b> · ${ms(sel.taps)}` : `IR ${two(ui.irSel)} is empty.`}</span>
+      ${sel ? `<button class="btn small" data-act="irrm" ${busy ? "disabled" : ""}>${icon("trash", 15)} Remove</button>` : ""}</div>
+    <div class="drop" id="irdrop">${icon("file-music", 26)}
+      <div style="flex:1;min-width:0">${ui.ir
+        ? `<b style="color:var(--text);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ui.ir.file)}</b><span style="color:var(--good);font-size:13px">Impulse response, ${ms(Math.min(CAB_TAPS, ui.ir.samples.length))} used</span>`
+        : "Drop a cab impulse response (.wav) here"}</div>
+      <button class="btn small" data-act="iropen">${ui.ir ? "Another" : "Choose file"}</button></div>
+    ${ui.irErr ? `<div class="note bad">${icon("alert-triangle", 16)}<span>${esc(ui.irErr)}</span></div>` : ""}
+    ${ui.ir ? `<label class="field">Name<input type="text" id="irname" maxlength="31" value="${esc(ui.ir.name)}" spellcheck="false"></label>` : ""}
+    <div class="row between" style="flex-wrap:nowrap"><span class="muted" style="font-size:13px;min-width:0">${!ui.ir ? "Choose an impulse response first." : sel ? `Replaces “${esc(sel.name)}”` : ""}</span>
+      <button class="btn primary" data-act="irsend" ${ui.ir && !busy ? "" : "disabled"}>${icon("upload", 16)} ${sel ? "Replace" : "Send to"} IR ${two(ui.irSel)}</button></div>
+    ${ui.irResult ? `<div class="note ${ui.irResult.ok ? "good" : "bad"}">${icon(ui.irResult.ok ? "circle-check" : "alert-triangle", 16)}<span>${esc(ui.irResult.text)}</span></div>` : ""}
+    <p class="faint" style="font-size:12.5px">For captures of an amp without a cab (DI). A capture that already has a cab sounds boxy with a second one. The first ${ms(CAB_TAPS)} of the IR are used, levelled to the same loudness as every other IR.</p>
+  </div></section>`;
+}
+
+function mountIrBank(root, ctx) {
+  const pick = root.querySelector("#irpick");
+  if (pick) pick.onchange = async () => {
+    const slot = ui.sel, s = ctx.state.nam?.bank[slot], k = +pick.value;
+    if (!s) return;
+    try {
+      await ctx.withLink("Choosing a cab IR", async (link) => { await setToneIr(link, slot, s.crc, k); await ctx.loadNam(link); });
+      ctx.toast(k < 0 ? `Slot ${two(slot)} plays without a cab IR` : `Slot ${two(slot)} plays “${ctx.state.nam.cabs[k]?.name || `IR ${two(k)}`}”`);
+    } catch (e) { ui.irResult = { ok: false, text: e.message }; ctx.render(); }
+  };
+  const choose = (k) => { ui.irSel = k; ctx.render(); document.querySelector(`[data-irrow="${k}"]`)?.focus(); };
+  root.querySelectorAll("[data-irrow]").forEach((r) => {
+    r.onclick = () => choose(+r.dataset.irrow);
+    r.onkeydown = (e) => {                                  // one Tab stop: arrows, Home, End move; Enter or Space picks
+      const all = [...root.querySelectorAll("[data-irrow]")], i = all.indexOf(r);
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(+r.dataset.irrow); return; }
+      const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: all.length - 1 }[e.key];
+      if (to === undefined) return;
+      e.preventDefault();
+      const n = all[Math.max(0, Math.min(all.length - 1, to))];
+      r.tabIndex = -1; n.tabIndex = 0; n.focus();
+    };
+  });
+  const drop = root.querySelector("#irdrop");
+  if (!drop) return;
+  root.querySelector('[data-act="iropen"]').onclick = async () => {
+    const f = await ctx.openFile("Choose a cab impulse response", [{ name: "Impulse response", extensions: ["wav", "wave"] }]);
+    if (f) takeIr(ctx, f.name, f.bytes);
+  };
+  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = async (e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) takeIr(ctx, f.name, new Uint8Array(await f.arrayBuffer())); };
+  const nameField = root.querySelector("#irname");
+  if (nameField) nameField.oninput = () => { ui.ir.name = nameField.value; };
+  root.querySelector('[data-act="irsend"]').onclick = async () => {
+    const k = ui.irSel, old = ctx.state.nam?.cabs?.[k], n = ctx.state.nam?.irs?.filter((x) => x === k).length || 0;
+    if (old && !(await ctx.confirm(`Replace the cab IR “${old.name}”?`, n ? `IR ${two(k)} gets the new one, and the ${n} capture${n === 1 ? "" : "s"} playing it ${n === 1 ? "plays" : "play"} the new one.` : `IR ${two(k)} gets the new one.`, "Replace"))) return;
+    ui.irResult = null; ctx.render();
+    try {
+      const name = ui.ir.name.trim() || irStem(ui.ir.file), file = makeCabFile(ui.ir.samples, name);
+      await ctx.withLink("Sending a cab IR", async (link) => { await putCabFile(link, k, file); await ctx.loadNam(link); });
+      ui.irResult = { ok: true, text: `“${name}” is IR ${two(k)}. Choose it for a capture above, or on the pedal's CAB page.` };
+      ui.ir = null;
+    } catch (e) { ui.irResult = { ok: false, text: e.message }; }
+    ctx.render();
+  };
+  root.querySelector('[data-act="irrm"]')?.addEventListener("click", async () => {
+    const k = ui.irSel, old = ctx.state.nam?.cabs?.[k], n = ctx.state.nam?.irs?.filter((x) => x === k).length || 0;
+    if (!old || !(await ctx.confirm(`Remove IR ${two(k)}?`, `“${old.name}” is removed from the pedal.${n ? ` The ${n} capture${n === 1 ? "" : "s"} playing it ${n === 1 ? "plays" : "play"} without a cab IR.` : ""}`, "Remove", true))) return;
+    try { await ctx.withLink("Removing a cab IR", async (link) => { await removeCabFile(link, k); await ctx.loadNam(link); }); ctx.toast(`IR ${two(k)} removed`); }
+    catch (e) { ui.irResult = { ok: false, text: e.message }; ctx.render(); }
+  });
+  root.querySelector('[data-act="irshrink"]')?.addEventListener("click", async () => {
+    try {
+      const n = await ctx.withLink("Making IRs smaller", async (link) => { const m = await shrinkCabs(link); await ctx.loadNam(link); return m; });
+      ctx.toast(`${n} IR${n === 1 ? "" : "s"} made smaller`);
+    } catch (e) { ui.irResult = { ok: false, text: e.message }; ctx.render(); }
   });
 }

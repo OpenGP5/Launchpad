@@ -5,8 +5,10 @@ import * as F from "../lib/gp5flash.js";
 import { changeFirmware } from "../lib/change.js";
 import { imageKind, currentKind } from "../lib/storage.js";
 import { backupNow } from "./backups.js";
+import { entries as catalogEntries, check as catalogCheck, caution } from "../lib/catalog.js";
 
-const ui = { manifest: null, chosen: null, error: null, agree: false, log: [], progress: null, result: null, running: false };
+const ui = { manifest: null, chosen: null, error: null, agree: false, log: [], progress: null, result: null, running: false,
+            cat: null, catLoading: false, getting: null };      // cat: { index, fresh, error } from the firmware catalog
 
 async function loadManifest(ctx) {
   try { ui.manifest = JSON.parse(new TextDecoder().decode(await ctx.appFile("firmware/manifest.json"))); }
@@ -14,11 +16,40 @@ async function loadManifest(ctx) {
   ctx.render();
 }
 
-function choose(ctx, title, bytes, source, description = "") {
+async function loadCatalog(ctx) {
+  ui.catLoading = true;
+  try { ui.cat = await ctx.catalog(); } catch (e) { ui.cat = { index: null, error: e.message }; }
+  ui.catLoading = false; ctx.render();
+}
+
+// the catalog's listings that aren't simply what ships with Launchpad (same id and version)
+function catalogList() {
+  const bundled = new Map((ui.manifest || []).map((m) => [m.id, (m.version.match(/\d+\.\d+\.\d+/) || [""])[0]]));
+  return catalogEntries(ui.cat?.index).filter((e) => bundled.get(e.id) !== e.latest.version);
+}
+
+function choose(ctx, title, bytes, source, description = "", extra = {}) {
   ui.result = null; ui.log = []; ui.progress = null;
-  try { const info = F.inspect(bytes); ui.chosen = { title, bytes, info, source, description }; ui.error = null; }
+  try { const info = F.inspect(bytes); ui.chosen = { title, bytes, info, source, description, ...extra }; ui.error = null; }
   catch (e) { ui.chosen = null; ui.error = `${title}: ${e.message}`; }
   ctx.render();
+}
+
+function catalogHtml(ctx) {
+  const { esc, icon } = ctx;
+  if (!ui.cat) return `<p class="faint" style="font-size:13px">${ui.catLoading ? "Loading the catalog…" : ""}</p>`;
+  if (!ui.cat.index) return `<div class="note">${icon("info-circle", 16)}<span>The catalog couldn't be loaded${ui.cat.error ? ` (${esc(ui.cat.error)})` : ""}. <button class="link" data-act="catretry">Try again</button></span></div>`;
+  const list = catalogList();
+  const stale = ui.cat.fresh ? "" : `<p class="faint" style="font-size:12.5px;margin-bottom:6px">Offline: the list from the last time Launchpad could reach OpenGP5's site.</p>`;
+  if (!list.length) return stale + `<p class="faint" style="font-size:13px">Nothing more yet. Made a firmware? List it: OpenGP5's catalog/README.md.</p>`;
+  return stale + `<div class="list">${list.map((e) => `
+      <button class="item tall pick ${ui.chosen?.source === "catalog:" + e.id ? "sel" : ""}" data-cat="${esc(e.id)}" ${ui.getting ? "disabled" : ""}>
+        <span class="pill world" style="width:30px;height:30px;justify-content:center;padding:0;border-radius:9px">${icon(e.official ? "sparkles" : "puzzle", 16)}</span>
+        <span class="main"><span class="name">${esc(e.name)} <span class="faint" style="font-weight:500">by ${esc(e.author)}</span></span>
+          <span class="sub clamp2" title="${esc(e.description)}">${ui.getting === e.id ? "Downloading and checking…" : esc(e.description)}</span></span>
+        <span class="stack" style="gap:4px;align-items:flex-end"><span class="pill mono">${esc(e.latest.version)}</span>
+          <span class="pill ${e.official ? "" : "warn"}" style="font-size:11px">${e.official ? "OpenGP5" : "Not reviewed"}</span></span>
+      </button>`).join("")}</div>`;
 }
 
 export default {
@@ -26,6 +57,7 @@ export default {
   render(ctx) {
     const { esc, icon, state } = ctx;
     if (!ui.manifest) { loadManifest(ctx); }
+    if (!ui.cat && !ui.catLoading) loadCatalog(ctx);
     const lib = (ui.manifest || []).map((m) => `
       <button class="item tall pick ${ui.chosen?.source === m.file ? "sel" : ""} ${m.world}" data-file="${esc(m.file)}">
         <span class="pill world" style="width:30px;height:30px;justify-content:center;padding:0;border-radius:9px">${icon(m.file.includes("nam") ? "wave-sine" : m.file.includes("dream") ? "sparkles" : "bolt", 16)}</span>
@@ -47,6 +79,8 @@ export default {
               <span class="pill world" style="width:30px;height:30px;justify-content:center;padding:0;border-radius:9px">${icon("adjustments-horizontal", 16)}</span>
               <span class="main"><span class="name">Valeton's firmware</span><span class="sub clamp2">The factory firmware, downloaded from valeton.net.</span></span>
               <span class="pill mono">V1.0.6</span></button></div>
+          <h3 class="sub-head">${icon("download", 16)} More from the catalog</h3>
+          ${catalogHtml(ctx)}
           <div class="drop" style="margin-top:12px" id="flashdrop">${icon("file-import", 24)}
             <div style="flex:1;min-width:0"><b style="color:var(--text)">Your own file</b><br><span style="font-size:13px">Drop a .bin file here.</span></div>
             <button class="btn small" data-act="open">Choose file</button></div>
@@ -54,9 +88,12 @@ export default {
         </section>
         <section class="card">
           <div class="card-head"><h2>${icon("bolt", 18)} ${c ? esc(c.title) : "Nothing chosen yet"}</h2></div>
-          ${c?.description ? `<p class="muted" style="margin-bottom:12px">${esc(c.description)}</p>` : ""}${c ? `<table class="plain"><thead><tr><th>Part</th><th>Size</th><th>Contents</th></tr></thead><tbody>${sections}</tbody></table>` :
+          ${c?.description ? `<p class="muted" style="margin-bottom:12px">${esc(c.description)}</p>` : ""}
+          ${c?.entry ? `<div class="note ${c.entry.official ? "" : "warn"}" style="margin-bottom:12px">${icon(c.entry.official ? "info-circle" : "alert-triangle", 16)}<span>${esc(caution(c.entry))}
+              <button class="link" data-repo="${esc(c.entry.repo)}">Source and releases</button></span></div>` : ""}${c ? `<table class="plain"><thead><tr><th>Part</th><th>Size</th><th>Contents</th></tr></thead><tbody>${sections}</tbody></table>` :
                 '<p class="muted">Choose a firmware.</p>'}
           <div class="stack" style="margin-top:14px">
+            ${c && currentKind(ctx.state.pedal) === "stock" && imageKind(c.bytes).kind !== "stock" ? `<div class="note warn">${icon("alert-triangle", 16)}<span><b>Leaving Valeton's firmware?</b> Export your SnapTones and user IRs in Valeton Suite first: Launchpad can't back them up, and they may not survive. Launchpad backs up your 100 presets when you flash; global settings stay on the pedal.</span></div>` : ""}
             <label class="check"><input type="checkbox" id="agree" ${ui.agree ? "checked" : ""}><span>Keep the pedal connected until it's done. Custom firmware is at your own risk.</span></label>
             <p class="faint" style="font-size:12.5px">${esc(where)}</p>
             <div class="row"><button class="btn primary" data-act="flash" ${canFlash ? "" : "disabled"} aria-describedby="flash-why">${icon("bolt", 16)} Flash${c ? " " + esc(c.title) : ""}</button>
@@ -75,6 +112,20 @@ export default {
       try { choose(ctx, m.title, await ctx.appFile("firmware/" + m.file), m.file, m.description); }
       catch (e) { ui.error = `${m.title}: ${e.message}`; ctx.render(); }
     });
+    root.querySelectorAll("[data-cat]").forEach((b) => b.onclick = async () => {
+      const e = catalogList().find((x) => x.id === b.dataset.cat), r = e.latest;
+      ui.getting = e.id; ui.error = null; ctx.render();
+      try {
+        const bytes = await ctx.catalogDownload(r.url, r.sha256);
+        const errs = await catalogCheck(bytes, e, r);
+        if (errs.length) throw new Error(`the download isn't what the catalog lists: ${errs.join("; ")}. Not flashed.`);
+        choose(ctx, `${e.name} ${r.version}`, bytes, "catalog:" + e.id, e.description, { entry: e });
+      } catch (x) { ui.error = `${e.name}: ${x.message}`; }
+      finally { ui.getting = null; ctx.render(); }
+    });
+    root.querySelectorAll("[data-repo]").forEach((b) => b.onclick = () => window.launchpad?.openLink(b.dataset.repo));
+    const retry = root.querySelector('[data-act="catretry"]');
+    if (retry) retry.onclick = () => { ui.cat = null; loadCatalog(ctx); };
     root.querySelector('[data-act="valeton"]').onclick = async () => {
       const f = await ctx.stockImage();
       if (f) choose(ctx, "Valeton's firmware V1.0.6", f.bytes, "valeton", "The factory firmware, downloaded from valeton.net.");

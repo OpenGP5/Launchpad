@@ -1,26 +1,20 @@
 [
  {
-  "file": "GP-5_tuner.bin",
-  "title": "Strobe tuner (demo)",
-  "description": "Strobe tuner for guitar and 5-string bass. Foot switch mutes, PARA sets the reference pitch, the volume knob sets the level.",
-  "version": "v1.1.0 (OpenGP5 0.5.4)",
-  "sha256": "c51c3d938b1680050a544db2a5f906631a5a90314af1450d1a5649133adbc1ec",
-  "world": "w-mods"
- },
- {
   "file": "GP-5_dreamcatcher.bin",
   "title": "Dreamcatcher",
-  "description": "Ambient looper, glitch delay with grains and pitch shifting, and reverb. 8 presets. Source: github.com/OpenGP5/Dreamcatcher.",
-  "version": "v1.2.0 (OpenGP5 0.5.5)",
-  "sha256": "c71ea98b0dc235f795721d08584e5ebdde9f3844793ce81e9ad317ae946a5fc4",
-  "world": "w-dream"
+  "description": "Ambient looper, glitch delay with grains and pitch shifting, and reverb, free or in time with a tempo. 8 presets. Source: github.com/OpenGP5/Dreamcatcher.",
+  "version": "v1.4.0 (OpenGP5 0.8.0)",
+  "sha256": "caba2a3b43cefc05008f38dd2bd1824e22a81933388a11a88c612efc264d09ab",
+  "world": "w-dream",
+  "id": "dreamcatcher"
  },
  {
   "file": "GP-5_nam-player.bin",
   "title": "NAM Loader",
-  "description": "Plays NAM A2 captures at 48 kHz, each with its own cab IR if you like. 12 slots, filled from the Tones page.",
-  "version": "v1.1.0 (OpenGP5 0.6.0)",
-  "sha256": "72ab7db7c5ccb090620852ec51f186cd119057f1f96ed5bda8fbb00046c506b7",
-  "world": "w-nam"
+  "description": "Plays NAM A2 captures at 48 kHz with a noise gate and EQ each, and any of 12 cab IRs. 30 slots, filled from the Tones page.",
+  "version": "v1.3.0 (OpenGP5 0.8.0)",
+  "sha256": "1cfeea4d4fb712cf3c1495c49779056f9bb6ec48491ac3c132d08aaa367d8cf3",
+  "world": "w-nam",
+  "id": "nam"
  }
 ]

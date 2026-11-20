@@ -33,7 +33,7 @@ class DreamLive {
       case DC.P.USED: return this.slots.reduce((m, s, i) => (s ? m | (1 << i) : m), 0);
       case DC.P.CHANGED: return this.changed();
       case DC.P.SAVE: return 0;
-      case DC.P.FORMAT: return 4;
+      case DC.P.FORMAT: return 5;
       default: return null;
     }
   }
@@ -55,7 +55,7 @@ class DreamLive {
     return false;
   }
   save() {
-    const img = this.img(), data = encodeDreamcatcher({ last: this.preset, slots: this.slots, names: this.names }, 4);
+    const img = this.img(), data = encodeDreamcatcher({ last: this.preset, slots: this.slots, names: this.names }, 5);
     this.p.flash.set(applyPlan(img, planSave(img, IDS.dreamcatcher, data)), STORE);
   }
 }
@@ -75,6 +75,40 @@ export class SimPedal extends FakePedal {
     this.dspCrc = 0;
     this.installApp(firmware);
     this.stock = new StockModel(stock || {});
+  }
+  // ---- the developer commands of platform 0.7: a log ring like gp5_log.c's, and a load report (lib/devtools.js)
+  dev() { return this.identity && this.mode === F.MODE_OPEN && !(this.platform.split(".").map(Number).reduce((a, x) => a * 1000 + x, 0) < 7000); }
+  logLine(text) {
+    const ms = Date.now() - (this.t0 ??= Date.now());
+    const line = `[${String(Math.floor(ms / 1000)).padStart(5)}.${String(ms % 1000).padStart(3, "0")}] ${text}\n`;
+    this.log = ((this.log || "") + line); this.logW = (this.logW || 0) + line.length;
+    if (this.log.length > 4096) this.log = this.log.slice(-4096);                      // the pedal keeps the last 4 KB
+  }
+  logReply(from) {
+    if (!this.logStarted) {
+      this.logStarted = true;
+      this.logLine(`OpenGP5 ${this.platform}, firmware ${this.firmware}, control processor 288 MHz, 44100 Hz`);
+      this.logLine(`dsp: firmware ${this.firmware}, variables 1996 of 19968 bytes, GP5_LARGE 51072 of 124928`);
+      this.logLine("DSP ready, version 00010000");
+      this.lastLine = Date.now();
+    }
+    if (Date.now() - this.lastLine > 2000) {                                            // a firmware's own line now and then
+      this.lastLine = Date.now(); this.n = (this.n || 0) + 1;
+      this.logLine(this.n % 3 ? `knob ${this.knob ?? 150}, worst block ${60 + (this.n * 7) % 9} %` : `dsp: link ok, ${this.n * 1379} blocks`);
+    }
+    const end = this.logW, oldest = end - this.log.length;
+    let at = from >>> 0; if (at < oldest || at > end) at = at > end ? end : oldest;
+    const bytes = new TextEncoder().encode(this.log.slice(at - oldest, at - oldest + 48));
+    const w = (v) => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
+    return [0x7E, 0x18, 1, ...w(at), ...w(end), bytes.length, ...bytes];
+  }
+  statusReply(reset) {
+    const jit = () => Math.floor(Math.random() * 6000);
+    if (reset || !this.worst) this.worst = { link: 0, loop: 0, dsp: 0 };
+    const block = 417920, dblock = 278464, link = 260000 + jit(), loop = 120000 + jit(), dsp = 170000 + jit();
+    this.worst.link = Math.max(this.worst.link, link); this.worst.loop = Math.max(this.worst.loop, loop); this.worst.dsp = Math.max(this.worst.dsp, dsp);
+    const v = [block, link, this.worst.link, this.worst.loop, 61440, 278496, 1, dblock, dsp, this.worst.dsp, 0, 1996, 19968, 51072, 124928];
+    return [0x7E, 0x14, 1, ...v.flatMap((x) => [x & 255, (x >>> 8) & 255, (x >>> 16) & 255, (x >>> 24) & 255])];
   }
   installApp(firmware) {
     const code = new TextEncoder().encode(`\0OPENGP5 ${this.platform}\0${MARKS[firmware] || ""}\0`);
@@ -109,6 +143,8 @@ export class SimPedal extends FakePedal {
     switch (pl[1]) {
       case 0x0D: return this.identity ? [[0x7E, 0x0D, 1, ...this.platform.split(".").map(Number), ...new TextEncoder().encode(this.firmware), 0]] : out;
       case 0x0F: return this.identity && this.platform >= "0.5.2" ? [[0x7E, 0x0F, 1, this.knob ?? 150, 0, 0]] : out;
+      case 0x18: return this.dev() ? [this.logReply(a)] : out;          // the log (platform 0.7)
+      case 0x14: return this.dev() ? [this.statusReply(pl.length > 2 && pl[2] === 1)] : out;   // load and memory (0.7)
       case 0x0E:
         if (!this.identity) return out;
         this.reloads.push(u32(pl, 2));

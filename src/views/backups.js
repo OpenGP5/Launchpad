@@ -86,7 +86,7 @@ export default {
         chips: hist.length ? [`last: ${new Date(hist[0].created).toLocaleDateString()}`] : ["no backups yet"] });
     return head + `<div class="cols stretch w-backup" style="--n:2">
       <section class="card"><div class="card-head"><h2>${icon("history", 18)} Backups from this computer</h2></div>
-        ${p?.mode === MODE_STOCK ? `<div class="note" style="margin-bottom:10px">${icon("info-circle", 16)}<span>With Valeton's firmware, a backup holds its 100 presets. Its global settings, SnapTones and IRs aren't included.</span></div>` : ""}
+        ${p?.mode === MODE_STOCK ? `<div class="note warn" style="margin-bottom:10px">${icon("alert-triangle", 16)}<span>With Valeton's firmware, a backup holds its 100 presets. <b>SnapTones and user IRs aren't included:</b> export them in Valeton Suite before you install another firmware, or they may be lost. Global settings stay on the pedal.</span></div>` : ""}
         ${ui.progress ? `<div style="margin-bottom:10px"><p class="muted" style="font-size:12.5px;margin-bottom:6px">${esc(ui.progress.label)}</p><progress max="1" value="${ui.progress.f}"></progress></div>` : ""}
         ${ui.result ? `<div class="note ${ui.result.ok ? "good" : "bad"}" style="margin-bottom:10px">${icon(ui.result.ok ? "circle-check" : "alert-triangle", 16)}<span>${esc(ui.result.text)}</span></div>` : ""}
         ${hist.length ? `<div class="list">${hist.map((h, i) => `<div class="item tall"><span class="main"><span class="name">${esc(h.file)}</span>
@@ -171,7 +171,10 @@ export default {
               const n = it.preset.n - 1, want = { ...it.preset.preset };
               if (samePreset(await readPreset(link, n), want)) { same++; continue; }
               await writePreset(link, n, want);
-            } else if (it.kind === "file") await writeFile(link, fourcc(owner), it.file.name, it.file.bytes);
+            } else if (it.kind === "file") await writeFile(link, fourcc(owner.startsWith("fw:") ? it.file.owner : owner), it.file.name, it.file.bytes);
+            else if (it.kind === "records") {           // a 1.0 firmware's records: the platform tells it to read them again
+              for (const r of it.part.records) { const w = await storeSave(link, r.id, r.bytes); if (!w.reloaded) restart = true; }
+            }
             else if (it.kind === "nam-slot") {
               if (ctx.filesMode()) await writeFile(link, NAM_OWNER, toneName(it.slot.slot - 1), it.slot.bytes);   // old backup, new storage
               else await writeKeep(link, (it.slot.slot - 1) * SLOT_BYTES, it.slot.bytes);

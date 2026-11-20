@@ -105,22 +105,23 @@ export const IDS = { dreamcatcher: fourcc("DRMC"), nam: fourcc("AMPB"), tuner: f
 
 // Dreamcatcher (its nds32/controls.c): [version][last][used bits][spare], then 8 slots, each every setting (params.h
 // order) and VOLUME; version 4 then 8 names of 12 bytes (printable ASCII, zero-padded). Version 1 (1.0 / 1.1): 19
-// settings; version 2 (1.2 before the reverb): 28; version 3: 34; version 4 (1.2): 34 and the names.
-// Launchpad works on version 3's 35 values (34 settings + VOLUME); older records are read into that (new settings
-// at their defaults, the reverb off so they sound as saved) and written back in the version the firmware reads.
+// settings; version 2 (1.2 before the reverb): 28; version 3: 34; version 4 (1.2 / 1.3): 34 and the names; version 5
+// (1.4): 36 (SYNC, BPM) and the names. Launchpad works on 37 values (36 settings + VOLUME); older records are read into
+// that (new settings at their defaults, the reverb off so they sound as saved) and written back in the version the
+// firmware reads.
 export const DC = {
   SLOTS: 8,
   PARAMS: ["on", "mix", "clock", "catch", "loopMode", "length", "motion", "loopLevel", "route", "time", "smear",
            "chance", "rate", "depth", "shape", "modType", "dissolve", "glitch", "filter",
            "grain", "pitch", "scale", "reverse", "stutter", "tone", "fade", "freeze", "overdub",
-           "reverbDecay", "reverbMix", "reverbSize", "reverbPredelay", "reverbMod", "reverbShimmer", "volume"],
+           "reverbDecay", "reverbMix", "reverbSize", "reverbPredelay", "reverbMod", "reverbShimmer", "sync", "bpm", "volume"],
   MAX: [1, 255, 10, 2, 1, 255, 255, 255, 2, 255, 255, 255, 255, 255, 6, 1, 255, 255, 255,
-        255, 255, 4, 255, 255, 255, 255, 1, 1, 255, 255, 255, 255, 255, 255, 255],
+        255, 255, 4, 255, 255, 255, 255, 1, 1, 255, 255, 255, 255, 255, 255, 1, 240, 255],
   DEFAULTS: [1, 128, 10, 0, 0, 255, 160, 200, 1, 150, 150, 128, 70, 60, 0, 0, 128, 85, 110,
-             170, 0, 3, 0, 0, 255, 230, 0, 0, 150, 70, 180, 20, 80, 0, 255],
-  SETTINGS: { 1: 19, 2: 28, 3: 34, 4: 34 },  // settings per slot in each version (+ VOLUME)
+             170, 0, 3, 0, 0, 255, 230, 0, 0, 150, 70, 180, 20, 80, 0, 0, 120, 255],
+  SETTINGS: { 1: 19, 2: 28, 3: 34, 4: 34, 5: 36 },   // settings per slot in each version (+ VOLUME)
   NAME_LEN: 12,                            // version 4: a name per slot
-  VOL: 34,                                 // VOLUME's index in Launchpad's values
+  VOL: 36,                                 // VOLUME's index in Launchpad's values
 };
 DC.ID = Object.fromEntries(DC.PARAMS.map((p, i) => [p, i]));
 // Live access (OpenGP5 0.5.4, 7E 10 / 7E 11; Dreamcatcher's params.h DC_P_*): ids 0..33 are the settings, and
@@ -128,12 +129,12 @@ DC.P = { VOLUME: 0x100, PRESET: 0x101, USED: 0x102, CHANGED: 0x103, SAVE: 0x104,
 // a name as the pedal keeps it: printable ASCII, at most 12 characters, no trailing spaces
 export const dcName = (s) => String(s || "").replace(/[^\x20-\x7e]/g, "").slice(0, DC.NAME_LEN).replace(/\s+$/, "");
 
-// One preset's values from any version's layout (20, 29 or 35 values: settings then VOLUME) as Launchpad's 35
+// One preset's values from any version's layout (20, 29, 35 or 37 values: settings then VOLUME) as Launchpad's 37
 // (backups and files made by older Launchpads hold 20). null if it isn't one of them.
 export function dcValues(v) {
   if (!Array.isArray(v)) return null;
   const n = v.length - 1;
-  if (![19, 28, 34].includes(n) || !v.every((x) => Number.isInteger(x) && x >= 0 && x <= 255)) return null;
+  if (![19, 28, 34, 36].includes(n) || !v.every((x) => Number.isInteger(x) && x >= 0 && x <= 255)) return null;
   const out = DC.DEFAULTS.slice();
   for (let k = 0; k < n; k++) out[k] = v[k];
   if (n < DC.ID.reverbMix) out[DC.ID.reverbMix] = 0;
@@ -163,7 +164,7 @@ export function decodeDreamcatcher(data) {
   return { last: data[1] < DC.SLOTS ? data[1] : 0, slots, names: slots.map((_, i) => (slots[i] ? nameOf(i) : "")), version };
 }
 
-export function encodeDreamcatcher({ last, slots, names = [] }, version = 4) {
+export function encodeDreamcatcher({ last, slots, names = [] }, version = 5) {
   const n = DC.SETTINGS[version];
   if (!n) throw new Error(`Unknown Dreamcatcher preset version ${version}`);
   const d = new Uint8Array(4 + DC.SLOTS * (n + 1) + (version >= 4 ? DC.SLOTS * DC.NAME_LEN : 0));

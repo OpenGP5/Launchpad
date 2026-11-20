@@ -27,10 +27,10 @@ test("value texts and names are the pedal's own (fixture printed by Dreamcatcher
   assert.ok(n > 15000, `${n} texts checked`);
 });
 
-test("preset formats 1-4 read into 35 values (and names from 4); written back in the version asked for", () => {
+test("preset formats 1-5 read into 37 values (names from 4, sync from 5); written back in the version asked for", () => {
   const v3 = DC.DEFAULTS.map((d, i) => (i * 7) % (DC.MAX[i] + 1));
   const slots = [v3, null, null, DC.DEFAULTS.slice(), null, null, null, null];
-  for (const ver of [1, 2, 3, 4]) {
+  for (const ver of [1, 2, 3, 4, 5]) {
     const d = decodeDreamcatcher(encodeDreamcatcher({ last: 3, slots }, ver));
     assert.equal(d.version, ver); assert.equal(d.last, 3); assert.equal(d.slots[1], null);
     const n = DC.SETTINGS[ver];
@@ -47,17 +47,19 @@ test("preset formats 1-4 read into 35 values (and names from 4); written back in
   assert.equal(decodeDreamcatcher(new Uint8Array(100)), null);
   assert.equal(dcValues(Array(20).fill(3))[DC.ID.reverbMix], 0);
   assert.equal(dcValues(Array(35).fill(3))[DC.ID.reverbMix], 3);
+  assert.equal(dcValues(Array(35).fill(3))[DC.ID.bpm], 120, "1.3 presets: 120 BPM, sync off");
+  assert.equal(dcValues(Array(37).fill(3))[DC.ID.bpm], 3);
   assert.equal(dcValues(Array(21).fill(3)), null);
 });
 
-test("an older backup's 20-value presets are read as 35", async () => {
+test("an older backup's 20-value presets are read as 37", async () => {
   const values = DC.DEFAULTS.slice(0, 19).concat([200]);
   const b = { format: FORMAT, version: 1, firmware: { kind: "dreamcatcher" }, parts: [
     { kind: "dreamcatcher-presets", last: 1, slots: [{ slot: 1, values }, ...Array.from({ length: 7 }, (_, i) => ({ slot: i + 2, values: null }))] }] };
   const r = await parseBackup(new TextEncoder().encode(JSON.stringify(b)));
   const p = r.backup.parts.find((x) => x.kind === "dreamcatcher-presets");
   assert.ok(!p.bad, JSON.stringify(r.problems));
-  assert.equal(p.slots[0].values.length, 35); assert.equal(p.slots[0].values[DC.VOL], 200); assert.equal(p.slots[0].values[DC.ID.reverbMix], 0);
+  assert.equal(p.slots[0].values.length, 37); assert.equal(p.slots[0].values[DC.VOL], 200); assert.equal(p.slots[0].values[DC.ID.reverbMix], 0);
 });
 
 test("live settings on a Dreamcatcher with platform 0.5.4 (simulated)", async () => {
@@ -76,8 +78,8 @@ test("live settings on a Dreamcatcher with platform 0.5.4 (simulated)", async ()
   assert.equal(await paramSet(link, DC.P.SAVE, 2), true);
   assert.deepEqual(await paramsRead(link, DC.P.VOLUME, 4), [255, 2, 4, 0]);       // volume, preset, used, changed
   const d = decodeDreamcatcher(latest(await readStore(link)).get(IDS.dreamcatcher).data);
-  assert.equal(d.version, 4); assert.equal(d.last, 2); assert.equal(d.slots[2][DC.ID.mix], 222);
-  assert.deepEqual(await paramsRead(link, DC.P.FORMAT, 1), [4], "the firmware says it keeps names");
+  assert.equal(d.version, 5); assert.equal(d.last, 2); assert.equal(d.slots[2][DC.ID.mix], 222);
+  assert.deepEqual(await paramsRead(link, DC.P.FORMAT, 1), [5], "the firmware says it keeps names and sync");
   await paramSet(link, DC.ID.mix, 10);
   assert.deepEqual(await paramsRead(link, DC.P.CHANGED, 1), [1]);
   assert.equal(await paramSet(link, DC.P.PRESET, 2), true);
@@ -91,4 +93,18 @@ test("no live settings on older platforms or other firmwares", async () => {
   const nam = new SimPedal({ firmware: "nam", identity: true, platform: "0.5.4" });
   const l2 = await nam.open((await locate(nam)).name);
   assert.deepEqual(await paramsRead(l2, 0, 1), []);
+});
+
+test("sync note values match the pedal's (Dreamcatcher's presets_test.c: the same cases)", () => {
+  const v = DC.DEFAULTS.slice(); v[DC.ID.sync] = 1; v[DC.ID.bpm] = 120; v[DC.ID.clock] = 10;
+  assert.equal(valueText("time", 0, v), "1/32");
+  assert.equal(valueText("time", 255, v), "1/2", "1 s is the longest delay that fits at 120 BPM, full clock");
+  assert.equal(valueText("time", 255, { ...v, [DC.ID.clock]: 8 }), "1 BAR");
+  assert.equal(valueText("rate", 255, v), "4 BARS"); assert.equal(valueText("rate", 0, v), "1/32");
+  assert.equal(valueText("grain", 0, v), "1/64"); assert.equal(valueText("grain", 255, v), "1/16");
+  assert.equal(valueText("grain", 255, { ...v, [DC.ID.bpm]: 40 }), "1/32T");
+  assert.equal(valueText("length", 255, v), "1/2");
+  assert.equal(valueText("length", 255, { ...v, [DC.ID.loopMode]: 1 }).endsWith("MS"), true, "STRETCH stays free");
+  assert.equal(valueText("sync", 1, v), "SYNC"); assert.equal(valueText("bpm", 97, v), "97 BPM");
+  v[DC.ID.sync] = 0; assert.equal(valueText("time", 255, v).endsWith("S"), true, "free again");
 });

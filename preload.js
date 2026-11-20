@@ -14,4 +14,6 @@ contextBridge.exposeInMainWorld("launchpad", {
   onWindowState: (fn) => ipcRenderer.on("window-state", (_e, s) => fn(s)),
   copyText: (t) => ipcRenderer.invoke("copy-text", t),
   valetonFirmware: (version, download) => ipcRenderer.invoke("valeton-firmware", { version, download }),
+  catalog: () => ipcRenderer.invoke("catalog"),                     // the firmware catalog: { index, fresh, error }
+  catalogDownload: (url, sha256) => ipcRenderer.invoke("catalog-download", { url, sha256 }),   // a listed release, checked
 });

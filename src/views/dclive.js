@@ -19,7 +19,7 @@ const POLL_MS = 350, HOLD_MS = 1200;
 const idx = (key) => (key === "volume" ? DC.VOL : DC.ID[key]);
 const cap = (s) => s[0] + s.slice(1).toLowerCase();
 // names as people say them (the pedal's screen shows them in capitals, shortened)
-const NICE = { "LOOP LV": "Loop level", "PRE-DLY": "Pre-delay" };
+const NICE = { "LOOP LV": "Loop level", "PRE-DLY": "Pre-delay", BPM: "BPM" };
 const nice = (it, v) => { const n = itemName(it, v); return NICE[n] || cap(n); };
 // what a screen reader hears: the section with the name ("Reverb mix", not a second "MIX"), units spoken
 function aname(it, v) {
@@ -33,7 +33,9 @@ const PANEL_ORDER = [0, 1, 2, 4, 3, 5, 6];
 
 // A knob: a 270-degree arc from 7 to 5 o'clock, the value's part in the section's colour, a pointer.
 const R = 21, CIRC = 2 * Math.PI * R, SWEEP = 0.75;
-const frac = (it, x) => (it.n > 1 ? x / (it.n - 1) : 0);
+const frac = (it, x) => (it.n > 1 ? (x - it.lo) / (it.n - 1) : 0);
+// SYNC and BPM (Dreamcatcher 1.4): only when the pedal has them
+const shown = (it) => !(it.key === "sync" || it.key === "bpm") || L.hasSync;
 const knobArc = (f) => `${(CIRC * SWEEP * f).toFixed(2)} ${CIRC.toFixed(2)}`;
 const pointer = (f) => -135 + 270 * f;
 
@@ -47,7 +49,7 @@ function control(ctx, it) {
   }
   const f = frac(it, x);
   return `<div class="dck" data-dc="${it.key}">
-    <div class="dck-knob" role="slider" tabindex="0" aria-label="${esc(aname(it, v))}" aria-valuemin="0" aria-valuemax="${it.n - 1}"
+    <div class="dck-knob" role="slider" tabindex="0" aria-label="${esc(aname(it, v))}" aria-valuemin="${it.lo}" aria-valuemax="${it.lo + it.n - 1}"
       aria-valuenow="${x}" aria-valuetext="${esc(spoken(t))}" title="Drag or scroll to turn. Double-click to reset.">
       <svg viewBox="0 0 56 56" aria-hidden="true">
         <circle class="dck-track" cx="28" cy="28" r="${R}" stroke-dasharray="${knobArc(1)}" transform="rotate(135 28 28)"/>
@@ -105,7 +107,7 @@ export function renderLive(ctx, { draftDirty = false } = {}) {
     ${slotsRow(ctx)}
     <div class="dcsecs-wrap"><div class="dcsecs">${PANEL_ORDER.map((si) => { const s = SECTIONS[si]; return `<section class="dcsec dcsec-${s.name.toLowerCase()}" style="--c:${s.c}" aria-label="${cap(s.name)}">
       <h3 class="dcsec-head"><i aria-hidden="true"></i>${cap(s.name)}</h3>
-      <div class="dck-row">${ITEMS.filter((it) => it.sec === si).map((it) => control(ctx, it)).join("")}</div></section>`; }).join("")}</div></div>
+      <div class="dck-row">${ITEMS.filter((it) => it.sec === si && shown(it)).map((it) => control(ctx, it)).join("")}</div></section>`; }).join("")}</div></div>
   </section>`;
 }
 
@@ -179,14 +181,16 @@ async function read(force) {
   if (!ctx || ctx.state.busy || L.sending || L.queue.size || (L.drag && !force)) return;
   const got = await ctx.linkQuiet(async (link) => {
     const a = await paramsRead(link, 0, DC.VOL), b = await paramsRead(link, DC.P.VOLUME, 4);
-    return a && b && a.length === DC.VOL && b.length === 4 ? { a, b } : null;
+    return a && b && (a.length === DC.VOL || a.length === DC.ID.sync) && b.length === 4 ? { a, b } : null;   // 1.3: no SYNC / BPM
   }).catch(() => null);
   if (!got) return;
-  const first = !L.vals;
+  const first = !L.vals, hadSync = L.hasSync;
   if (first) L.vals = DC.DEFAULTS.slice();
+  L.hasSync = got.a.length === DC.VOL;
   const now = Date.now();
   ITEMS.concat([{ key: "on" }, { key: "catch" }, { key: "freeze" }, { key: "overdub" }]).forEach(({ key }) => {
     if (!force && now - (L.local.get(key) || 0) < HOLD_MS) return;         // just changed here: the pedal catches up
+    if (key !== "volume" && DC.ID[key] >= got.a.length) return;           // (an older Dreamcatcher hasn't it)
     L.vals[idx(key)] = key === "volume" ? got.b[0] : got.a[DC.ID[key]];
   });
   const [, preset, used, changed] = got.b;
@@ -194,7 +198,7 @@ async function read(force) {
   const usedNow = used !== L.used;
   Object.assign(L, { preset, used, changed, wasChanged: changed });
   const root = document.querySelector("[data-dclive]");
-  if (first) { ctx.render(); return; }
+  if (first || hadSync !== L.hasSync) { ctx.render(); return; }
   if (root) refresh(root);
   if ((usedNow || savedOnPedal) && !first) ctx.reloadDream();             // the slot cards below follow
 }
@@ -222,7 +226,7 @@ function wireSlots(root) {
 
 // A knob's input: vertical drag (200 px = the whole range; Shift: 4x finer), wheel, keys, double-click = default
 function wireKnob(box, k, it) {
-  const max = it.n - 1, set = (x) => { x = Math.max(0, Math.min(max, Math.round(x))); if (x !== L.vals[idx(it.key)]) change(box, it.key, x); };
+  const max = it.n - 1, lo = it.lo, set = (x) => { x = Math.max(lo, Math.min(lo + max, Math.round(x))); if (x !== L.vals[idx(it.key)]) change(box, it.key, x); };
   let y0 = 0, x0 = 0, pid = null;
   k.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
@@ -248,7 +252,7 @@ function wireKnob(box, k, it) {
   }, { passive: false });
   k.addEventListener("keydown", (e) => {
     const x = L.vals[idx(it.key)], big = max > 32 ? 16 : 1;
-    const to = { ArrowUp: x + 1, ArrowRight: x + 1, ArrowDown: x - 1, ArrowLeft: x - 1, PageUp: x + big, PageDown: x - big, Home: 0, End: max }[e.key];
+    const to = { ArrowUp: x + 1, ArrowRight: x + 1, ArrowDown: x - 1, ArrowLeft: x - 1, PageUp: x + big, PageDown: x - big, Home: lo, End: lo + max }[e.key];
     if (to === undefined) return;
     e.preventDefault(); set(to);
   });

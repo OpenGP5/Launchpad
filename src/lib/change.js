@@ -22,8 +22,9 @@ export async function changeFirmware(ctx, { sections, imageBytes, target, backup
       : "the presets, tones and settings stored on the pedal";
     const back = target.kind === "stock" ? " Valeton's firmware comes back with its factory presets." : "";
     const canBackup = (state.pedal?.mode === F.MODE_OPEN || state.pedal?.mode === F.MODE_STOCK) && !!state.link;
+    const snap = cur === "stock" ? "\n\nSnapTones and user IRs can't be backed up by Launchpad and may be lost: export them in Valeton Suite first if you want to keep them. Global settings stay on the pedal." : "";
     const answer = await ctx.choose(`Install ${target.title}?`,
-      `Installing ${target.title} erases ${lost}.${back}${canBackup ? " Back them up first if you want them later." : ""}`,
+      `Installing ${target.title} erases ${lost}.${back}${canBackup ? " Back them up first if you want them later." : ""}${snap}`,
       [{ value: "cancel", label: "Cancel" }, { value: "flash", label: "Erase and install", danger: true },
        ...(canBackup ? [{ value: "backup", label: "Back up first", primary: true }] : [])]);
     if (!answer || answer === "cancel") return null;

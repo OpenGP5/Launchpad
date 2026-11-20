@@ -53,7 +53,9 @@ export default {
     let world = "w-home", deco = "plug-connected", title, text, chips = [], tiles = [], actions = "";
     if (!p) {
       title = state.problem ? "Launchpad can't reach USB-MIDI" : "Plug in your GP-5";
-      text = state.problem ? "Allow MIDI access, then connect again." : "Connect it with USB.";
+      text = !state.problem ? "Connect it with USB."
+        : state.problemLinux ? "Launchpad uses ALSA's MIDI sequencer (/dev/snd/seq). If it's missing, load it with sudo modprobe snd-seq, then connect again."
+        : "Allow MIDI access, then connect again.";
       if (state.problem) actions = `<button class="btn primary" data-act="connect">${icon("plug-connected", 16)} Connect</button>`;
       tiles = [tile(ctx, "w-flash", "flash", "bolt", "Flash", "any firmware, stock or custom"), tile(ctx, "w-backup", "backups", "archive", "Restore", "from a backup file"),
                tile(ctx, "w-mods", "mods", "puzzle", "Mods", "for Valeton's firmware")];

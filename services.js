@@ -70,6 +70,55 @@ exports.setup = function setup() {
     return stockFirmware({ version, download: !!download, cacheDir: path.join(app.getPath("userData"), "valeton"), fetchFn: (u, o) => net.fetch(u, o) });
   });
   ipcMain.handle("app-info", () => ({ version: require("./package.json").version, platform: process.platform }));
+  // The firmware catalog (OpenGP5's catalog/README.md): the list from OpenGP5's site, kept for when offline, and
+  // downloads of the releases it lists, nothing else. Each download is checked against the list (size, checksum)
+  // here, before the page sees it; the page then checks what the image says it is.
+  ipcMain.handle("catalog", () => exports.catalog());
+  ipcMain.handle("catalog-download", (_e, { url, sha256 }) => exports.catalogDownload(url, sha256));
+};
+
+// development only (an app that isn't packaged): LAUNCHPAD_CATALOG=<url> reads another catalog, e.g. a local test one,
+// whose releases may then also be on http://localhost
+const devCatalog = () => (!app.isPackaged && process.env.LAUNCHPAD_CATALOG) || null;
+const CATALOG_URL = "https://opengp5.github.io/OpenGP5/catalog.json";
+const releaseUrlOk = (u) => /^https:\/\//.test(u) || (!!devCatalog() && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(u));
+let catalogReleases = new Map();                    // "url sha256" -> { sha256, size } from the list read last
+const catalogFile = () => path.join(app.getPath("userData"), "catalog.json");
+function rememberReleases(index) {
+  catalogReleases = new Map();
+  for (const e of (index && index.firmwares) || []) for (const r of e.releases || [])
+    if (r && typeof r.url === "string" && releaseUrlOk(r.url) && /^[0-9a-f]{64}$/.test(r.sha256) && Number.isInteger(r.size)) catalogReleases.set(`${r.url} ${r.sha256}`, r);
+}
+exports.catalog = async function catalog() {
+  try {
+    const r = await net.fetch(devCatalog() || CATALOG_URL, { headers: { "User-Agent": "OpenGP5-Launchpad" }, cache: "no-cache" });
+    if (r.status === 404) throw new Error("OpenGP5's site has no catalog yet");
+    if (!r.ok) throw new Error(`OpenGP5's site answered ${r.status}`);
+    const text = await r.text(), index = JSON.parse(text);
+    if (!index || index.version !== 1 || !Array.isArray(index.firmwares)) throw new Error("not a catalog");
+    await fs.writeFile(catalogFile(), text).catch(() => {});
+    rememberReleases(index);
+    return { index, fresh: true };
+  } catch (e) {
+    const why = /^net::|fetch failed|ENOTFOUND|ECONN/.test(e.message) ? "can't reach OpenGP5's site: offline?" : e.message;
+    try { const index = JSON.parse(await fs.readFile(catalogFile(), "utf8")); rememberReleases(index); return { index, fresh: false, error: why }; }
+    catch { return { index: null, fresh: false, error: why }; }
+  }
+};
+exports.catalogDownload = async function catalogDownload(url, sha256) {
+  const want = catalogReleases.get(`${url} ${sha256}`);   // (two listings may share a file: the checksum says which)
+  if (!want) throw new Error("not a release the catalog lists");
+  const cache = path.join(app.getPath("userData"), "catalog-files", `${want.sha256}.bin`);
+  const ok = (b) => b.length === want.size && require("node:crypto").createHash("sha256").update(b).digest("hex") === want.sha256;
+  try { const b = await fs.readFile(cache); if (ok(b)) return new Uint8Array(b); } catch { /* not downloaded yet */ }
+  const r = await net.fetch(url, { headers: { "User-Agent": "OpenGP5-Launchpad" } });
+  if (!r.ok) throw new Error(`the download failed (${r.status})`);
+  const b = Buffer.from(await r.arrayBuffer());
+  if (b.length > 4 * 1024 * 1024) throw new Error("the download is far too big for a GP-5 image");
+  if (!ok(b)) throw new Error("the download doesn't match the catalog (size or checksum): not flashed");
+  await fs.mkdir(path.dirname(cache), { recursive: true }).catch(() => {});
+  await fs.writeFile(cache, b).catch(() => {});
+  return new Uint8Array(b);
 };
 
 exports.checkUpdate = async function checkUpdate(override) {

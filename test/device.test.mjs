@@ -31,7 +31,7 @@ test("a firmware that doesn't name itself (default \"opengp5\") is recognised fr
 
 test("flashes real images and recognises them from their code", async () => {
   const p = new SimPedal({ firmware: "nam" });
-  for (const [file, kind] of [["GP-5_dreamcatcher.bin", "dreamcatcher"], ["GP-5_tuner.bin", "tuner"]]) {
+  for (const [file, kind] of [["GP-5_dreamcatcher.bin", "dreamcatcher"], ["GP-5_nam-player.bin", "nam"]]) {
     const { sections } = F.inspect(new Uint8Array(readFileSync(FW(file))));
     const mode = await F.flash(p, sections, () => {}, null);
     assert.equal(mode, MODE_OPEN);

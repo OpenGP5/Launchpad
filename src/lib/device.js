@@ -1,5 +1,6 @@
 // The connected pedal: what it is running, and the reads and writes Launchpad does over the OpenGP5 platform's
 // USB commands (platform/nds32/main.c: 7E 05 read flash, 7E 07 erase / 7E 08 program the store and data areas).
+import { readPedalMeta, kindOf } from "./fwmeta.js";
 import { find, buildSysex, parseSysex, CLASS_CMD, MODE_OPEN, MODE_STOCK, MODE_LOADER, MODE_SILENT } from "./gp5flash.js";
 import { flashRead } from "./gp5nam.js";
 import { STORE, STORE_SIZE, SECTOR, planSave, latest } from "./gp5store.js";
@@ -50,6 +51,11 @@ export async function identify(link, progress = () => {}) {
   const id = await cmd(link, [0x7E, 0x0D], 300);
   if (id && id.length >= 7 && id[2] === 1) {           // 7E 0D 1 <platform major minor patch> <name, zero-terminated>
     const name = new TextDecoder().decode(id.subarray(6)).split("\0")[0];
+    const meta = await readPedalMeta(link).catch(() => null);       // 1.0: the firmware says what it is
+    if (meta) {
+      const kind = kindOf(meta.id);
+      return { kind, title: meta.name, name: meta.id, version: meta.version, meta, platform: `${id[3]}.${id[4]}.${id[5]}` };
+    }
     const kind = Object.keys(FIRMWARES).find((k) => k === name) || "opengp5";
     // "opengp5" is the platform's default: a firmware that doesn't name itself (e.g. Dreamcatcher 1.1.0 built on a
     // newer platform). Recognise it from its code, as for platforms without the identity command.

@@ -85,3 +85,52 @@ test("start-up claim (platform C): same firmware keeps, no mark keeps, another f
     fileURLToPath(new URL("./c/claim_ref.c", import.meta.url)), "-o", b]);
   assert.equal(execFileSync(b).toString().trim(), "OK");
 });
+
+test("NAM Loader 1.3: 30 captures and 12 IRs fit (any order), and replacing one works with the storage full", async () => {
+  const p = new SimPedal({ firmware: "nam" });
+  const link = await p.open((await locate(p)).name);
+  const A = fourcc("AMPB"), two = (i) => String(i).padStart(2, "0");
+  // the worst order for packing: IRs (one sector) between captures (two), some removed and put back
+  for (let i = 1; i <= 30; i++) {
+    await writeFile(link, A, `tone-${two(i)}`, bytes(4448, i));
+    if (i <= 12) await writeFile(link, A, `cab-${two(i)}`, bytes(2096, 100 + i));
+    if (i === 15) { await deleteFile(link, A, "cab-03"); await deleteFile(link, A, "tone-04"); await deleteFile(link, A, "cab-08"); }
+  }
+  await writeFile(link, A, "cab-03", bytes(2096, 203)); await writeFile(link, A, "tone-04", bytes(4448, 204)); await writeFile(link, A, "cab-08", bytes(2096, 208));
+  let dir = await listFiles(link);
+  assert.equal(dir.files.length, 42); assert.equal(dir.freeSectors, 1);
+  // full: replacing a capture (the old copy goes first) and an IR
+  await writeFile(link, A, "tone-17", bytes(4448, 317));
+  await writeFile(link, A, "cab-05", bytes(2096, 305));
+  dir = await listFiles(link);
+  assert.equal(dir.files.length, 42); assert.equal(dir.freeSectors, 1);
+  assert.deepEqual(await readFile(link, dir.files.find((f) => f.name === "tone-17")), bytes(4448, 317));
+  assert.deepEqual(await readFile(link, dir.files.find((f) => f.name === "cab-05")), bytes(2096, 305));
+  assert.deepEqual(await readFile(link, dir.files.find((f) => f.name === "tone-04")), bytes(4448, 204));
+  assert.equal(cList(p.flash, [A]).length, 42);                              // and the platform's C sees all of them
+  await assert.rejects(writeFile(link, A, "tone-31", bytes(4448, 31)), /Not enough room/);
+});
+
+test("NAM Loader 1.3: each tone's IR in the settings record (as nds32/firmware.c)", async () => {
+  const { parseToneRecord, makeToneRecord, toneIrs, namLayout } = await import("../src/lib/namfiles.js");
+  assert.deepEqual(namLayout({ kind: "nam", version: "1.3.0" }), { slots: 30, irs: 12, irBank: true });
+  assert.deepEqual(namLayout({ kind: "nam", version: "1.2.1" }), { slots: 12, irs: 12, irBank: false });
+  // 1.2's record: 13 x 8 bytes, the built-in capture's last; read as 1.3 reads it
+  const old = new Uint8Array(104), dv = new DataView(old.buffer);
+  dv.setUint32(0, 0xAAAA, true); old.set([5, 13, 12, 11], 4); dv.setUint32(96, 0xBBBB, true); old.set([1, 2, 3, 4], 100);
+  const e = parseToneRecord(old);
+  assert.equal(e.length, 31); assert.equal(e[0].crc, 0xAAAA); assert.deepEqual(e[0].v, [5, 13, 12, 11]); assert.equal(e[0].ir, 0);
+  assert.equal(e[30].crc, 0xBBBB); assert.deepEqual(e[30].v, [1, 2, 3, 4]);
+  const rec = makeToneRecord(e);
+  assert.equal(rec.length, 31 * 12); assert.deepEqual(parseToneRecord(rec), e);
+  // what plays: a choice, else the IR of the same number (slots 1..12), none when it's gone
+  const bank = Array(30).fill(null), cabs = Array(12).fill(null);
+  bank[0] = { crc: 0xAAAA }; bank[1] = { crc: 2 }; bank[2] = { crc: 3 }; bank[20] = { crc: 21 };
+  cabs[1] = {}; cabs[4] = {};
+  e[2] = { crc: 3, v: [0, 12, 12, 12], ir: 2 + 4 };   // slot 3 chose IR 5
+  e[20] = { crc: 21, v: [0, 12, 12, 12], ir: 1 };     // slot 21 chose none
+  assert.deepEqual(toneIrs(e, bank, cabs).slice(0, 4), [-1, 1, 4, -1]);
+  assert.equal(toneIrs(e, bank, cabs)[20], -1);
+  e[2].crc = 99;                                       // another capture in slot 3 now: the default (IR 3: empty)
+  assert.equal(toneIrs(e, bank, cabs)[2], -1);
+});
