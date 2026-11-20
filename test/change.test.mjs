@@ -30,7 +30,7 @@ const areaBlank = (p) => p.flash.subarray(0x13F000, 0x18A000).every((v) => v ===
 
 test("image kinds", () => {
   assert.equal(imageKind(FW("GP-5_dreamcatcher.bin")).kind, "dreamcatcher");
-  assert.equal(imageKind(FW("GP-5_nam-player.bin")).kind, "nam");
+  assert.equal(imageKind(FW("GP-5_nam-loader.bin")).kind, "nam");
 });
 
 test("another firmware: asked, then everything wiped", async () => {
@@ -49,7 +49,7 @@ test("cancel: nothing happens", async () => {
 
 test("back to Valeton: area wiped, order table 0..99", async () => {
   const { p, ctx } = await setup();
-  const r = await changeFirmware(ctx, { target: { kind: "stock", title: "Valeton's firmware" }, sections: F.inspect(FW("GP-5_nam-player.bin")).sections.filter(([t]) => t === 0x63),
+  const r = await changeFirmware(ctx, { target: { kind: "stock", title: "Valeton's firmware" }, sections: F.inspect(FW("GP-5_nam-loader.bin")).sections.filter(([t]) => t === 0x63),
     backupNow: async () => true, say: () => {} });
   assert.equal(r.wiped, true);
   assert.deepEqual(Array.from(p.flash.subarray(0x170000, 0x170064)), Array.from({ length: 100 }, (_, i) => i));
