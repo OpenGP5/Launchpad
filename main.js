@@ -62,7 +62,7 @@ else {
     const mac = process.platform === "darwin", dev = !app.isPackaged;
     const help = { role: "help", submenu: [
       { label: "OpenGP5 on GitHub", click: () => shell.openExternal("https://github.com/OpenGP5/OpenGP5") },
-      { label: "Web flasher and recovery", click: () => shell.openExternal("https://opengp5.github.io/OpenGP5/flasher/") },
+      { label: "Web flasher and recovery", click: () => shell.openExternal("https://opengp5.github.io/flasher/") },
     ] };
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       ...(mac ? [{ role: "appMenu" }] : [{ label: "File", submenu: [{ role: "about" }, { type: "separator" }, { role: "quit" }] }]),
