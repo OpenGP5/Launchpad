@@ -15,6 +15,11 @@ const STOCK_V106 = { 0x63: [0x3688, 0xC348], 0x67: [0x27A5, 0x55028], 0x66: [0x2
 export const MODE_OPEN = "open firmware", MODE_STOCK = "stock firmware", MODE_LOADER = "update mode";
 export const MODE_SILENT = "firmware that does not answer";
 const OPEN_PORT = "GP-5 Open FW", ANY_PORT = "GP-5";
+const BT_PORT = "GP-5 Bluetooth";                 // the pedal over Bluetooth MIDI (macOS names it so; OpenGP5 1.0)
+export const isBluetooth = (name) => !!name && name.includes("Bluetooth");
+// bluetoothFirst: use the pedal's Bluetooth port even while USB is connected too (testing Bluetooth on a pedal that
+// takes its power from USB; Launchpad: GP5_BLUETOOTH_FIRST=1 npm start)
+export const options = { bluetoothFirst: false };
 export const RECOVERY = "Recovery: unplug the pedal, hold the foot switch and the PARA knob, plug it back in: the screen shows " +
   "a red warning, \"When updating Please don't shut down!\" (update mode). Then flash again. The factory loader is never overwritten.";
 
@@ -181,9 +186,13 @@ async function ask(link, payload, want, timeout) {
 // [name, mode] of the connected pedal, or [null, null].
 export async function find(ports) {
   const names = await ports.names();
-  let name = names.find((n) => n.includes(OPEN_PORT));
+  let name = options.bluetoothFirst && names.find((n) => n.includes(BT_PORT));
   if (name) return [name, MODE_OPEN];
-  name = names.find((n) => n.includes(ANY_PORT));
+  name = names.find((n) => n.includes(OPEN_PORT));
+  if (name) return [name, MODE_OPEN];
+  name = names.find((n) => n.includes(BT_PORT));                     // USB first; else the pedal over Bluetooth
+  if (name) return [name, MODE_OPEN];
+  name = names.find((n) => n.includes(ANY_PORT) && !isBluetooth(n));
   if (!name) return [null, null];
   let link;
   try { link = await ports.open(name); } catch { return [null, null]; }   // still restarting: "not there yet"
@@ -209,6 +218,7 @@ async function waitFor(ports, modes, timeout) {
 async function toLoader(ports, say) {
   let [name, mode] = await find(ports);
   if (!name) throw new Problem("No GP-5 found on USB. Connect it and switch it on.");
+  if (isBluetooth(name)) throw new Problem("Updating firmware needs USB: connect the pedal with its USB cable (Bluetooth can't do it).");
   if (mode === MODE_LOADER) { say("The pedal is already in update mode."); return name; }
   say(`The pedal is running the ${mode}; asking it to restart into update mode.`);
   let ack = null;

@@ -120,15 +120,20 @@ test("NAM Loader 1.3: each tone's IR in the settings record (as nds32/firmware.c
   const old = new Uint8Array(104), dv = new DataView(old.buffer);
   dv.setUint32(0, 0xAAAA, true); old.set([5, 13, 12, 11], 4); dv.setUint32(96, 0xBBBB, true); old.set([1, 2, 3, 4], 100);
   const e = parseToneRecord(old);
-  assert.equal(e.length, 31); assert.equal(e[0].crc, 0xAAAA); assert.deepEqual(e[0].v, [5, 13, 12, 11]); assert.equal(e[0].ir, 0);
-  assert.equal(e[30].crc, 0xBBBB); assert.deepEqual(e[30].v, [1, 2, 3, 4]);
+  assert.equal(e.length, 31); assert.equal(e[0].crc, 0xAAAA); assert.deepEqual(e[0].v, [5, 13, 12, 11, 24, 24]); assert.equal(e[0].ir, 0);
+  assert.equal(e[30].crc, 0xBBBB); assert.deepEqual(e[30].v, [1, 2, 3, 4, 24, 24]);   // levels at 0 dB (before 1.4)
   const rec = makeToneRecord(e);
   assert.equal(rec.length, 31 * 12); assert.deepEqual(parseToneRecord(rec), e);
+  // 1.4: the output and input levels in the spare bytes (int8 steps from 0 dB); a 1.3 record (zeros) reads as 0 dB
+  e[5] = { crc: 0xC0DE, v: [3, 14, 12, 10, 30, 18], ir: 4 };
+  const r14 = makeToneRecord(e), d14 = new DataView(r14.buffer);
+  assert.equal(d14.getInt8(5 * 12 + 9), 6); assert.equal(d14.getInt8(5 * 12 + 10), -6);
+  assert.deepEqual(parseToneRecord(r14)[5].v, [3, 14, 12, 10, 30, 18]);
   // what plays: a choice, else the IR of the same number (slots 1..12), none when it's gone
   const bank = Array(30).fill(null), cabs = Array(12).fill(null);
   bank[0] = { crc: 0xAAAA }; bank[1] = { crc: 2 }; bank[2] = { crc: 3 }; bank[20] = { crc: 21 };
   cabs[1] = {}; cabs[4] = {};
-  e[2] = { crc: 3, v: [0, 12, 12, 12], ir: 2 + 4 };   // slot 3 chose IR 5
+  e[2] = { crc: 3, v: [0, 12, 12, 12, 24, 24], ir: 2 + 4 };   // slot 3 chose IR 5
   e[20] = { crc: 21, v: [0, 12, 12, 12], ir: 1 };     // slot 21 chose none
   assert.deepEqual(toneIrs(e, bank, cabs).slice(0, 4), [-1, 1, 4, -1]);
   assert.equal(toneIrs(e, bank, cabs)[20], -1);

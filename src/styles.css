@@ -24,7 +24,7 @@
   --canvas: #141318; --canvas-2: #19181e; --surface: #1f1e25; --surface-2: #27262e; --surface-3: #312f38;
   --line: #2e2d35; --line-strong: #403e48;
   --text: #f4f2ee; --text-2: #b5b1ab; --text-3: #a29e98; --control: #6d6b75;
-  --accent: #f4f2ee; --on-accent: #141318; --focus: #8fb9ff;
+  --accent: #f4f2ee; --on-accent: #141318; --focus: #3cc0c1;   /* focus: OpenGP5 Teal (docs/platform/palette.md) */
   --good: #8fd6a4; --warn: #f2c25b; --bad: #f08b84;
   /* the worlds: fill, ink on it, and a strong version for icons, dots and lines */
   --nam: #f6df8a;    --nam-ink: #3b300c;    --nam-strong: #f0c93e;
@@ -41,7 +41,7 @@
   --canvas: #f3eff6; --canvas-2: #ece7f1; --surface: #ffffff; --surface-2: #f6f3f8; --surface-3: #ebe6f0;
   --line: #e6e0ec; --line-strong: #d3ccdb;
   --text: #17151b; --text-2: #5d5966; --text-3: #69656f; --control: #8f8b95;
-  --accent: #17151b; --on-accent: #ffffff; --focus: #5b7cff;
+  --accent: #17151b; --on-accent: #ffffff; --focus: #247475;   /* Teal dark */
   --good: #2e8a4f; --warn: #936509; --bad: #c2413a;
   --nam-strong: #93700d; --dream-strong: #7a5ae8; --stock-strong: #43832f; --flash-strong: #2c78b8; --backup-strong: #b35d3a; --mods-strong: #23817c; --home-strong: #17151b;
   --home: #17151b; --home-ink: #ffffff; --pedal-shadow: 0.22;

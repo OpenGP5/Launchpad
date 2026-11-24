@@ -6,7 +6,7 @@ import { listFiles, writeFile, deleteFile, readFile, RUNS, SECTOR } from "./gp5f
 import { flashRead, blobInfo, dspCaptureCrc, crc32, SLOTS, SLOT_BYTES } from "./gp5nam.js";
 import { fourcc, latest } from "./gp5store.js";
 import { cmd, readStore, storeSave } from "./device.js";
-import { cabInfo, cabNameBytes, cabToCab2 } from "./cabir.js";
+import { cabInfo, cabNameBytes, cabToCab2, relevelCab } from "./cabir.js";
 
 export const NAM_OWNER = fourcc("AMPB");
 export const toneName = (i) => `tone-${String(i + 1).padStart(2, "0")}`;
@@ -122,26 +122,36 @@ export async function shrinkCabs(link, progress = () => {}) {
 }
 
 // ---- each tone's IR (NAM Loader 1.3): the settings record AMPT, as nds32/firmware.c keeps it
-// 31 entries (slots 1..30, then the built-in capture) of 12 bytes: crc u32, gate, bass, mid, treble, ir, 3 spare;
+// 31 entries (slots 1..30, then the built-in capture) of 12 bytes: crc u32, gate, bass, mid, treble, ir, then (1.4)
+// the output and input levels as int8 steps of 0.5 dB from 0 dB (0 in a record saved before 1.4), 1 spare;
 // ir 0 = the default (the IR of the same number, if there is one), 1 = none, 2.. = IR 1.. . A record of 13 x 8 bytes
 // was saved by 1.2 (12 slots + built-in, no IR). An entry belongs to the capture with that checksum.
 export const TONE_REC = fourcc("AMPT");
 const ENTRIES = 31, ENTRY = 12;
+// a tone's settings, in the record's order: gate, bass, mid, treble, output, input (output and input: 0 dB at 24)
+export const TONE_DEFAULT = [0, 12, 12, 12, 24, 24];
+const LV0 = 24;
+const i8 = (b) => (b > 127 ? b - 256 : b);
 export function parseToneRecord(data) {
-  const out = Array.from({ length: ENTRIES }, () => ({ crc: 0, v: [0, 12, 12, 12], ir: 0 }));
+  const out = Array.from({ length: ENTRIES }, () => ({ crc: 0, v: TONE_DEFAULT.slice(), ir: 0 }));
   if (!data) return out;
   const old = data.length === 13 * 8, size = old ? 8 : ENTRY;
   if (!old && data.length !== ENTRIES * ENTRY) return out;
   const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
   for (let i = 0; i < (old ? 13 : ENTRIES); i++) {
     const e = out[old && i === 12 ? 30 : i], o = i * size;
-    e.crc = dv.getUint32(o, true); e.v = [...data.subarray(o + 4, o + 8)]; e.ir = old ? 0 : data[o + 8];
+    e.crc = dv.getUint32(o, true); e.ir = old ? 0 : data[o + 8];
+    e.v = [...data.subarray(o + 4, o + 8), old ? LV0 : LV0 + i8(data[o + 9]), old ? LV0 : LV0 + i8(data[o + 10])];
   }
   return out;
 }
 export function makeToneRecord(entries) {
   const d = new Uint8Array(ENTRIES * ENTRY), dv = new DataView(d.buffer);
-  entries.forEach((e, i) => { dv.setUint32(i * ENTRY, e.crc >>> 0, true); d.set(e.v, i * ENTRY + 4); d[i * ENTRY + 8] = e.ir; });
+  entries.forEach((e, i) => {
+    const o = i * ENTRY, v = e.v;
+    dv.setUint32(o, e.crc >>> 0, true); d.set(v.slice(0, 4), o + 4); d[o + 8] = e.ir;
+    dv.setInt8(o + 9, (v[4] ?? LV0) - LV0); dv.setInt8(o + 10, (v[5] ?? LV0) - LV0);
+  });
   return d;
 }
 /** The IR each slot plays (-1: none), as the firmware decides: its choice, else the IR of the same number. */
@@ -154,17 +164,17 @@ export function toneIrs(entries, bank, cabs) {
   });
 }
 export async function readToneRecord(link) { return parseToneRecord(latest(await readStore(link)).get(TONE_REC)?.data); }
-/** A capture's settings as the firmware keeps them: { v: [gate, bass, mid, treble], ir } (ir as in the record). */
+/** A capture's settings as the firmware keeps them: { v: [gate, bass, mid, treble, output, input], ir } (ir as in the record). */
 export function toneEntry(entries, i, crc) {
   const e = entries?.[i];
-  return e && e.crc === crc && crc ? { v: e.v.slice(), ir: e.ir } : { v: [0, 12, 12, 12], ir: 0 };
+  return e && e.crc === crc && crc ? { v: e.v.slice(), ir: e.ir } : { v: TONE_DEFAULT.slice(), ir: 0 };
 }
 /** Change slot i's settings (its capture: crc) in the record: patch { v?: [4], ir?: -1 none | 0..11 }; the pedal
  *  takes it at once (7E 0E). For the capture playing, live parameters are smoother (NAM_P). */
 export async function setToneEntry(link, i, crc, patch) {
   const entries = await readToneRecord(link), e = entries[i];
-  if (e.crc !== crc || !crc) { e.crc = crc; e.v = [0, 12, 12, 12]; e.ir = 0; }   // as the firmware starts one
-  if (patch.v) e.v = patch.v.slice();
+  if (e.crc !== crc || !crc) { e.crc = crc; e.v = TONE_DEFAULT.slice(); e.ir = 0; }   // as the firmware starts one
+  if (patch.v) e.v = [...patch.v, ...e.v.slice(patch.v.length)];                       // (4 values from an older caller: levels kept)
   if (patch.ir !== undefined) e.ir = patch.ir < 0 ? 1 : patch.ir + 2;
   await storeSave(link, TONE_REC, makeToneRecord(entries));
   return entries;
@@ -173,7 +183,7 @@ export async function setToneEntry(link, i, crc, patch) {
 export async function setToneIr(link, i, crc, ir) { return setToneEntry(link, i, crc, { ir }); }
 
 // NAM Loader's parameters (its params.h): live settings 7E 10 / 7E 11
-export const NAM_P = { CAB: 0, TAPS: 1, GATE: 2, BASS: 3, MID: 4, TREBLE: 5, IR: 6, SLOT: 7 };
+export const NAM_P = { CAB: 0, TAPS: 1, GATE: 2, BASS: 3, MID: 4, TREBLE: 5, IR: 6, SLOT: 7, OUTPUT: 8, INPUT: 9 };
 
 /** Play slot i on the pedal (NAM Loader 1.3.1: parameter SLOT); waits until it plays. -1: the built-in capture. */
 export async function playSlot(link, i, crc) {
@@ -207,6 +217,18 @@ export async function renameCapture(link, i, name) {
   return true;
 }
 /** Rename IR k (its name is the 32 bytes after the taps). */
+/** Every IR on the pedal at today's loudness (lib/cabir.js relevelCab): rewrites the ones more than 0.5 dB off.
+ *  Returns { changed, same }. */
+export async function relevelCabs(link, progress = () => {}) {
+  const dir = await listFiles(link), files = dir.files.filter((f) => f.owner === NAM_OWNER && /^cab-\d\d$/.test(f.name));
+  let changed = 0, same = 0;
+  for (let k = 0; k < files.length; k++) {
+    const r = relevelCab(await readFile(link, files[k]));
+    if (r) { await writeFile(link, NAM_OWNER, files[k].name, r.bytes); changed++; } else same++;
+    progress((k + 1) / files.length);
+  }
+  return { changed, same };
+}
 export async function renameCab(link, k, name) {
   const dir = await listFiles(link), f = dir.files.find((x) => x.owner === NAM_OWNER && x.name === cabFileName(k));
   if (!f) throw new Error("That IR is empty.");

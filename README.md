@@ -3,7 +3,7 @@
 <p align="center"><b>The desktop app for the Valeton GP-5: flash firmware, load captures and IRs, edit presets live, and back everything up.</b></p>
 
 <p align="center">
-  <a href="https://github.com/OpenGP5/Launchpad/releases/latest"><img alt="Version 0.3.0" src="https://img.shields.io/badge/version-0.3.0-3cc0c1?style=flat-square"></a>
+  <a href="https://github.com/OpenGP5/Launchpad/releases/latest"><img alt="Version 0.4.0" src="https://img.shields.io/badge/version-0.4.0-3cc0c1?style=flat-square"></a>
   <img alt="macOS, Windows and Linux" src="https://img.shields.io/badge/runs%20on-macOS%20%7C%20Windows%20%7C%20Linux-5b6b7b?style=flat-square">
   <a href="LICENSE"><img alt="Licence: MIT" src="https://img.shields.io/badge/licence-MIT-3ee8b5?style=flat-square"></a>
   <img alt="Status: alpha" src="https://img.shields.io/badge/status-alpha-e8590c?style=flat-square">

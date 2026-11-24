@@ -14,8 +14,12 @@ export const CAB_RATE = 48000;
 const MAGIC = 0x31424143;              // "CAB1"
 const MAGIC2 = 0x32424143;             // "CAB2"
 const NAME_BYTES = 32;
-const LOUDNESS_DB = -6.0;              // the middle of 51 IRs from five packs when only their peak was set (3.4 dB apart)
-const PEAK_MAX_DB = 2.0;
+// The IR's loudness target: since 1.4 (2026-11-24), set so a capture plays about as loud through the IR as without
+// one (Normalize levels captures before the IR; at the old -6 dB the IR took 7-12 dB off amp captures, so acoustic
+// captures, played without an IR, were that much louder). Measured: 5 amp and pedal captures x 3 IRs of one pack,
+// the median loss 8.8 dB, peaks after it at most -7.5 dBFS (Normalize keeps captures' peaks at -3 dBFS before the IR).
+const LOUDNESS_DB = 2.8;
+const PEAK_MAX_DB = 14.0;              // the loudest frequency's limit (was 2 dB, before Normalize capped captures' peaks)
 
 /** A .wav (any rate, any channels) -> mono samples at 48 kHz (the browser decodes and resamples). */
 export async function decodeIr(bytes) {
@@ -127,6 +131,21 @@ export function makeCabFile(samples, name, { format = 2 } = {}) {
   const nm = new TextEncoder().encode(name || "").slice(0, NAME_BYTES - 1);
   out.set(nm, 16 + 4 * n);
   return out;
+}
+
+/** A cab file at the loudness the IR should have now (LOUDNESS_DB): { bytes ("CAB2"), db (the change) }, or null when
+ *  it is within 0.5 dB already. For IRs sent before the 1.4 target (they play about 9 dB quieter); only the scale
+ *  changes for a "CAB2" file (taps x scale is what the pedal plays). */
+export function relevelCab(bytes) {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), magic = dv.getUint32(0, true), n = dv.getUint32(4, true);
+  if ((magic !== MAGIC && magic !== MAGIC2) || !n) throw new Error("Not a cab IR file.");
+  const h = new Float64Array(n), tb = cabTapBytes(magic, n);
+  if (magic === MAGIC2) { const sc = dv.getFloat32(12, true); for (let i = 0; i < n; i++) h[i] = dv.getInt16(16 + 2 * i, true) * sc; }
+  else for (let i = 0; i < n; i++) h[i] = dv.getFloat32(16 + 4 * i, true);
+  const g = cabGain(h), db = 20 * Math.log10(g);
+  if (Math.abs(db) < 0.5) return null;
+  const nb = bytes.subarray(16 + tb, 16 + tb + NAME_BYTES), z = nb.indexOf(0);
+  return { bytes: cab2(h.map((v) => Math.fround(v * g)), new TextDecoder().decode(nb.subarray(0, z < 0 ? nb.length : z))), db };
 }
 
 /** A cab file's header (+ its name bytes, at 16 + tapBytes) -> { taps, format (1 or 2), tapBytes, name }, or null. */

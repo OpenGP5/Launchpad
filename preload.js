@@ -16,5 +16,6 @@ contextBridge.exposeInMainWorld("launchpad", {
   copyText: (t) => ipcRenderer.invoke("copy-text", t),
   valetonFirmware: (version, download) => ipcRenderer.invoke("valeton-firmware", { version, download }),
   catalog: () => ipcRenderer.invoke("catalog"),                     // the firmware catalog: { index, fresh, error }
+  bluetoothFirst: process.env.GP5_BLUETOOTH_FIRST === "1",       // testing: the Bluetooth port even with USB connected
   catalogDownload: (url, sha256) => ipcRenderer.invoke("catalog-download", { url, sha256 }),   // a listed release, checked
 });

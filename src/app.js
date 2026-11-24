@@ -3,6 +3,8 @@
 // Start the page with #sim (or #sim=dreamcatcher, #sim=tuner, #sim=stock, #sim=loader) for a simulated pedal.
 import { INDEX_URL } from "./lib/catalog.js";
 import { webMidiPorts } from "./lib/webmidi.js";
+import { isBluetooth, options as flashOptions } from "./lib/gp5flash.js";
+flashOptions.bluetoothFirst = !!window.launchpad?.bluetoothFirst;
 import { locate, identify, readStore, readControls, paramsRead, MODE_OPEN, MODE_STOCK, MODE_LOADER, MODE_SILENT } from "./lib/device.js";
 import { readBank, dspCaptureCrc } from "./lib/gp5nam.js";
 import { readToneFiles, namLayout, readToneRecord, toneIrs } from "./lib/namfiles.js";
@@ -34,6 +36,7 @@ const state = {
   dream: null,            // decoded Dreamcatcher presets when Dreamcatcher runs
   stock: null,            // { list, current, version } or { error } when Valeton's firmware runs
   identifying: 0,         // 0..1 while reading the firmware's code
+  reading: null,          // then what it reads: "its settings", "its presets", ...
   busy: null,             // text while an operation holds the connection
   view: "home",
   problem: null,          // why there is no pedal (e.g. MIDI not allowed)
@@ -239,7 +242,7 @@ async function poll() {
   if (polling || state.busy || !state.ports) return;
   polling = true;
   try { await locked(pollLocked); }
-  catch (e) { console.warn("poll", e); await dropLink(); state.pedal = null; state.identifying = 0; render(); }
+  catch (e) { console.warn("poll", e); await dropLink(); state.pedal = null; state.identifying = 0; state.reading = null; render(); }
   finally { polling = false; }
 }
 async function pollLocked() {
@@ -256,10 +259,13 @@ async function pollLocked() {
       state.link = await state.ports.open(d.name);
       state.identifying = 0.01; render();
       state.pedal.firmware = await identify(state.link, (f) => { state.identifying = f; renderConn(); });
-      state.identifying = 0;
-      if (state.pedal.firmware.meta) state.params = { desc: await readDescriptions(state.link) };   // 1.0: any firmware's settings
-      if (state.pedal.firmware.kind === "nam") await ctx.loadNam(state.link);
-      if (state.pedal.firmware.kind === "dreamcatcher") await ctx.loadDream(state.link);
+      // then its settings and presets: the status says so (it stayed at "1 %" until the next redraw: slow over
+      // Bluetooth, 2026-11-23)
+      const step = (what) => { state.identifying = 1; state.reading = what; renderConn(); };
+      if (state.pedal.firmware.meta) { step("its settings"); state.params = { desc: await readDescriptions(state.link) }; }   // 1.0: any firmware's settings
+      if (state.pedal.firmware.kind === "nam") { step("its tones"); await ctx.loadNam(state.link); }
+      if (state.pedal.firmware.kind === "dreamcatcher") { step("its presets"); await ctx.loadDream(state.link); }
+      state.identifying = 0; state.reading = null;
       render();
     } else if (d && d.mode === MODE_STOCK) {               // Valeton's firmware: read its preset list (reads only)
       state.link = await state.ports.open(d.name);
@@ -311,8 +317,15 @@ function renderConn() {
   if (state.problem) text = state.problem;
   else if (!p) text = "No GP-5 connected";
   else if (state.busy) { dot = "busy"; text = state.busy; }
-  else if (state.identifying) { dot = "busy"; text = `Reading the pedal… ${Math.round(state.identifying * 100)}%`; }
-  else if (p.mode === MODE_OPEN) { dot = "on"; text = p.firmware?.title ?? "OpenGP5 firmware"; }      // the platform is in the pedal panel
+  else if (state.identifying) {                 // a percentage only while it reads the firmware's code (older ones)
+    dot = "busy";
+    text = state.reading ? `Reading ${state.reading}…`
+      : state.identifying > 0.011 && state.identifying < 1 ? `Reading the pedal… ${Math.round(state.identifying * 100)}%`
+      : "Reading the pedal…";
+  }
+  else if (p.mode === MODE_OPEN) {                                // the platform is in the pedal panel
+    dot = "on"; text = (p.firmware?.title ?? "OpenGP5 firmware") + (isBluetooth(p.name) ? " · Bluetooth" : "");
+  }
   else if (p.mode === MODE_STOCK) { dot = "on"; text = "Valeton firmware"; }
   else if (p.mode === MODE_LOADER) { dot = "busy"; text = "GP-5 in update mode"; }
   else text = "GP-5 isn't answering";

@@ -48,7 +48,10 @@ function findText(bytes, text) {
 
 // { kind, title, platform } of the open firmware on the pedal. progress(fraction) while it reads.
 export async function identify(link, progress = () => {}) {
-  const id = await cmd(link, [0x7E, 0x0D], 300);
+  let id = await cmd(link, [0x7E, 0x0D], 300);
+  // Over Bluetooth the pedal runs OpenGP5 1.0, which always answers this; right after connecting its first replies
+  // can be lost (the computer hasn't switched notifications on yet): ask again rather than scan its code (slow there)
+  for (let k = 0; !id && link.bluetooth && k < 6; k++) id = await cmd(link, [0x7E, 0x0D], 1000);
   if (id && id.length >= 7 && id[2] === 1) {           // 7E 0D 1 <platform major minor patch> <name, zero-terminated>
     const name = new TextDecoder().decode(id.subarray(6)).split("\0")[0];
     let meta = await readPedalMeta(link).catch(() => null);         // 1.0: the firmware says what it is
@@ -68,6 +71,7 @@ export async function identify(link, progress = () => {}) {
     const byCode = await identifyByCode(link, progress);
     return { ...byCode, name, platform: `${id[3]}.${id[4]}.${id[5]}` };
   }
+  if (link.bluetooth) throw new DeviceError("The pedal didn't answer over Bluetooth. Try again in a moment.");
   return identifyByCode(link, progress);
 }
 

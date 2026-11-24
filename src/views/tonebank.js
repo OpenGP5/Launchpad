@@ -5,11 +5,12 @@
 // (parameters); of any other, into the firmware's settings record (namfiles.js setToneEntry). Drop a .nam or a .wav
 // anywhere on the page to add it. Earlier NAM Loaders keep the older page (tones.js).
 import { convertNam, NotA2 } from "../lib/gp5nam.js";
-import { putToneFile, emptyToneFile, putCabFile, removeCabFile, shrinkCabs, setToneEntry, toneEntry, playSlot, renameCapture,
+import { putToneFile, emptyToneFile, putCabFile, removeCabFile, shrinkCabs, relevelCabs, setToneEntry, toneEntry, playSlot, renameCapture,
          renameCab, NAM_P, IRS } from "../lib/namfiles.js";
 import { decodeIr, makeCabFile, CAB_TAPS, CAB_RATE } from "../lib/cabir.js";
 import { paramSet, paramsRead } from "../lib/device.js";
-import { TONE_KNOBS } from "./namtone.js";
+import { TONE_KNOBS, toneShown, readLevels } from "./namtone.js";
+import { TONE_DEFAULT } from "../lib/namfiles.js";
 
 const two = (i) => String(i + 1).padStart(2, "0");
 const ms = (n) => `${Math.round((n / CAB_RATE) * 1000)} ms`;
@@ -31,7 +32,7 @@ function levels(c) {                                   // what the two switches 
 // mode: null | "rename"; vals: the knobs of the capture shown; live: the pedal's last answer
 const B = { tab: "caps", sel: null, irSel: null, cap: null, capErr: null, ir: null, irErr: null, mode: null, result: null,
             addResult: null, progress: null, converting: false, vals: null, valsFor: null, live: null, timer: null, ctx: null,
-            drag: -1, sending: false, queue: new Map(), local: [0, 0, 0, 0], saveTimer: null, convOpen: false, eqOpen: false };
+            drag: -1, sending: false, queue: new Map(), local: [0, 0, 0, 0, 0, 0], levels: null, saveTimer: null, convOpen: false, eqOpen: false };
 
 const firstFree = (list) => list.findIndex((s) => !s);
 function pick(nam) {                                   // keep the picks valid
@@ -101,7 +102,9 @@ function irsList(ctx) {
   }).join("");
   return `${old ? `<div class="note warn tb-oldnote"><span style="flex:1">${old} IR${old === 1 ? " uses" : "s use"} the older format, twice the size.</span>
       <button class="btn small" data-act="shrink" ${state.busy ? "disabled" : ""}>Shrink</button></div>` : ""}
-    <div class="list tb-scroll" id="tb-list" role="listbox" aria-label="IRs on the pedal">${rows}</div>`;
+    <div class="list tb-scroll" id="tb-list" role="listbox" aria-label="IRs on the pedal">${rows}</div>
+    ${cabs.some(Boolean) ? `<div class="row tb-relevel"><span class="faint" style="flex:1;font-size:12.5px">IRs sent with Launchpad 0.3 or earlier play about 9 dB quieter.</span>
+      <button class="btn small ghost" data-act="relevel" ${state.busy ? "disabled" : ""}>Match IR loudness</button></div>` : ""}`;
 }
 
 // ---------------------------------------------------------------- adding (top right)
@@ -153,9 +156,10 @@ function addIr(ctx) {
 // ---------------------------------------------------------------- details (below)
 
 function knobs(ctx) {
-  const v = B.vals || [0, 12, 12, 12], R = 21, C = 2 * Math.PI * R, arc = (f) => `${(C * 0.75 * f).toFixed(2)} ${C.toFixed(2)}`;
-  return `<div class="dck-row tb-knobs" style="grid-template-columns:repeat(4,minmax(0,1fr))">${TONE_KNOBS.map((k, i) => {
-    const f = v[i] / k.max;
+  const v = B.vals || TONE_DEFAULT, R = 21, C = 2 * Math.PI * R, arc = (f) => `${(C * 0.75 * f).toFixed(2)} ${C.toFixed(2)}`;
+  const shown = toneShown(B.levels);
+  return `<div class="dck-row tb-knobs" style="grid-template-columns:repeat(${shown.length === 6 ? 3 : 4},minmax(0,1fr))">${shown.map((i) => {
+    const k = TONE_KNOBS[i], f = v[i] / k.max;
     return `<div class="dck" data-tk="${i}"><div class="dck-knob" role="slider" tabindex="0" aria-label="${k.name}" aria-valuemin="0"
         aria-valuemax="${k.max}" aria-valuenow="${v[i]}" aria-valuetext="${k.spoken(v[i])}" title="Drag or scroll to turn. Double-click to reset."><svg viewBox="0 0 56 56" aria-hidden="true">
         <circle class="dck-track" cx="28" cy="28" r="${R}" stroke-dasharray="${arc(1)}" transform="rotate(135 28 28)"/>
@@ -191,12 +195,12 @@ function capDetail(ctx) {
     ${result(ctx, B.result)}
     <label class="tb-irrow"><span>${icon("device-speaker", 16)} IR</span>
       <select id="tb-irpick" ${busy || !cabs.some(Boolean) ? "disabled" : ""}>${cabs.some(Boolean) ? opts : `<option>No IRs on the pedal</option>`}</select></label>
-    <details class="tb-fold tb-eq" data-fold="eq" ${B.eqOpen ? "open" : ""}><summary>${icon("adjustments-horizontal", 16)} Gate and EQ <span class="faint">${eqSummary()}</span></summary>
+    <details class="tb-fold tb-eq" data-fold="eq" ${B.eqOpen ? "open" : ""}><summary>${icon("adjustments-horizontal", 16)} ${B.levels ? "Levels, gate and EQ" : "Gate and EQ"} <span class="faint">${eqSummary()}</span></summary>
       ${knobs(ctx)}</details>`;
 }
 function eqSummary() {
-  const v = B.vals || [0, 12, 12, 12], k = TONE_KNOBS;
-  return v[0] === 0 && v[1] === 12 && v[2] === 12 && v[3] === 12 ? "off" : k.map((x, i) => `${x.name.toLowerCase()} ${x.text(v[i])}`).join(", ");
+  const v = B.vals || TONE_DEFAULT, shown = toneShown(B.levels).filter((i) => v[i] !== TONE_KNOBS[i].def);
+  return shown.length ? shown.map((i) => `${TONE_KNOBS[i].name.toLowerCase()} ${TONE_KNOBS[i].text(v[i])}`).join(", ") : "off";
 }
 
 function irDetail(ctx) {
@@ -269,7 +273,7 @@ async function flushLive(ctx) {
     while (B.queue.size) {
       const [i, v] = B.queue.entries().next().value;
       B.queue.delete(i);
-      await ctx.linkQuiet((link) => paramSet(link, NAM_P.GATE + i, v));
+      await ctx.linkQuiet((link) => paramSet(link, TONE_KNOBS[i].id, v));
     }
   } catch (e) { B.result = { ok: false, text: `Couldn't reach the pedal: ${e.message}` }; ctx.render(); }
   finally { B.sending = false; }
@@ -315,11 +319,17 @@ function wireKnob(ctx, root, box) {
 async function poll() {
   const ctx = B.ctx;
   if (!ctx || ctx.state.busy || B.sending || B.queue.size || B.drag >= 0 || !ctx.state.nam?.layout?.irBank) return;
-  const got = await ctx.linkQuiet((link) => paramsRead(link, NAM_P.GATE, 6)).catch(() => null);
+  const got = await ctx.linkQuiet(async (link) => {
+    const a = await paramsRead(link, NAM_P.GATE, 6);
+    if (!a || a.length < 5 || B.levels === false) return a;
+    const lv = await readLevels(link);
+    return a.length === 6 && lv ? [...a, ...lv] : a;
+  }).catch(() => null);
   if (!got || got.length < 5) return;
+  if (B.levels === null && got.length >= 6) { B.levels = got.length === 8; B.valsFor = null; }
   const nam = ctx.state.nam, now = Date.now();
   const slot = got.length >= 6 ? got[5] - 1 : null;
-  B.live = { v: got.slice(0, 4), ir: got[4] - 1, slot };
+  B.live = { v: [...got.slice(0, 4), got[6] ?? 24, got[7] ?? 24], ir: got[4] - 1, slot };
   let again = false;
   if (slot !== null) {
     const crc = slot >= 0 ? nam.bank[slot]?.crc : null;
@@ -523,6 +533,13 @@ export function mountBank(root, ctx) {
     catch (e) { B.result = { ok: false, text: e.message }; }
     ctx.render();
   });
+  act("relevel", async () => {
+    try {
+      const r = await ctx.withLink("Matching IR loudness", async (link) => { const m = await relevelCabs(link); await ctx.loadNam(link); return m; });
+      ctx.toast(r.changed ? `${r.changed} IR${r.changed === 1 ? "" : "s"} matched${r.same ? `, ${r.same} already matched` : ""}` : "All IRs already match");
+    } catch (e) { B.result = { ok: false, text: e.message }; }
+    ctx.render();
+  });
   act("shrink", async () => {
     try { const n = await ctx.withLink("Making IRs smaller", async (link) => { const m = await shrinkCabs(link); await ctx.loadNam(link); return m; }); ctx.toast(`${n} IR${n === 1 ? "" : "s"} made smaller`); }
     catch (e) { B.result = { ok: false, text: e.message }; }
@@ -536,4 +553,4 @@ export function mountBank(root, ctx) {
 }
 
 /** another pedal or firmware: start over */
-export function resetBank() { Object.assign(B, { sel: null, irSel: null, cap: null, ir: null, mode: null, result: null, vals: null, valsFor: null, live: null }); B.queue.clear(); }
+export function resetBank() { Object.assign(B, { sel: null, irSel: null, cap: null, ir: null, mode: null, result: null, vals: null, valsFor: null, live: null, levels: null }); B.queue.clear(); }

@@ -3,27 +3,40 @@
 // here within a moment. Rendered once, then updated in place (a re-render would drop the knob being turned).
 import { paramSet, paramsRead } from "../lib/device.js";
 
-const ID0 = 2;                                         // gate, bass, mid, treble
+// A tone's settings in the pedal's record order (gate, bass, mid, treble; NAM Loader 1.4 adds output and input
+// levels): id is the live parameter. Shown in signal order (TONE_ORDER); without levels, the first four only.
 export const TONE_KNOBS = [
-  { name: "Gate", max: 61, def: 0, text: (v) => (v === 0 ? "Off" : `−${91 - v} dB`), spoken: (v) => (v === 0 ? "off" : `minus ${91 - v} decibels`) },
-  { name: "Bass", max: 24, def: 12, text: (v) => eqText(v), spoken: (v) => eqSpoken(v) },
-  { name: "Mid", max: 24, def: 12, text: (v) => eqText(v), spoken: (v) => eqSpoken(v) },
-  { name: "Treble", max: 24, def: 12, text: (v) => eqText(v), spoken: (v) => eqSpoken(v) },
+  { name: "Gate", id: 2, max: 61, def: 0, text: (v) => (v === 0 ? "Off" : `−${91 - v} dB`), spoken: (v) => (v === 0 ? "off" : `minus ${91 - v} decibels`) },
+  { name: "Bass", id: 3, max: 24, def: 12, text: (v) => eqText(v), spoken: (v) => eqSpoken(v) },
+  { name: "Mid", id: 4, max: 24, def: 12, text: (v) => eqText(v), spoken: (v) => eqSpoken(v) },
+  { name: "Treble", id: 5, max: 24, def: 12, text: (v) => eqText(v), spoken: (v) => eqSpoken(v) },
+  { name: "Output", id: 8, max: 48, def: 24, text: (v) => halfDb(v - 24), spoken: (v) => halfDbSpoken(v - 24) },
+  { name: "Input", id: 9, max: 36, def: 24, text: (v) => halfDb(v - 24), spoken: (v) => halfDbSpoken(v - 24) },
 ];
+export const TONE_ORDER = [5, 0, 1, 2, 3, 4];          // input, gate, bass, mid, treble, output
+export const toneShown = (levels) => (levels ? TONE_ORDER : [0, 1, 2, 3]);
 function eqText(v) { const d = v - 12; return d === 0 ? "0 dB" : `${d > 0 ? "+" : "−"}${Math.abs(d)} dB`; }
 function eqSpoken(v) { const d = v - 12; return d === 0 ? "flat" : `${d > 0 ? "plus" : "minus"} ${Math.abs(d)} decibels`; }
+function halfDb(s) { const d = Math.abs(s) / 2; return s === 0 ? "0 dB" : `${s > 0 ? "+" : "−"}${d} dB`; }
+function halfDbSpoken(s) { const d = Math.abs(s) / 2; return s === 0 ? "zero decibels" : `${s > 0 ? "plus" : "minus"} ${d} decibels`; }
+/** the levels (NAM Loader 1.4: parameters 8, 9), or null for an older NAM Loader */
+export async function readLevels(link) {
+  const lv = await paramsRead(link, 8, 2).catch(() => null);
+  return lv && lv.length === 2 ? lv : null;
+}
 
 const R = 21, CIRC = 2 * Math.PI * R, SWEEP = 0.75, HOLD_MS = 1500, POLL_MS = 1500;
 const arc = (f) => `${(CIRC * SWEEP * f).toFixed(2)} ${CIRC.toFixed(2)}`;
-const T = { vals: null, supported: null, ctx: null, local: [0, 0, 0, 0], queue: new Map(), sending: false, drag: -1, timer: null, err: null };
+const T = { vals: null, supported: null, levels: null, ctx: null, local: [0, 0, 0, 0, 0, 0], queue: new Map(), sending: false, drag: -1, timer: null, err: null };
 
 /** the card (empty for a NAM Loader without the tone section) */
 export function renderTone(ctx) {
   if (T.supported === false) return "";
   const { esc, icon, state } = ctx, cur = state.nam?.bank.find((s) => s && s.crc === state.nam.playing);
   const who = cur ? `“${esc(cur.name)}”` : "the capture playing";
-  const knobs = TONE_KNOBS.map((k, i) => {
-    const v = T.vals ? T.vals[i] : k.def, f = v / k.max;
+  const shown = toneShown(T.levels);
+  const knobs = shown.map((i) => {
+    const k = TONE_KNOBS[i], v = T.vals ? T.vals[i] : k.def, f = v / k.max;
     return `<div class="dck" data-tk="${i}">
       <div class="dck-knob" role="slider" tabindex="0" aria-label="${k.name}" aria-valuemin="0" aria-valuemax="${k.max}" aria-valuenow="${v}"
         aria-valuetext="${k.spoken(v)}" title="Drag or scroll to turn. Double-click to reset." ${T.vals ? "" : 'aria-disabled="true"'}>
@@ -35,9 +48,9 @@ export function renderTone(ctx) {
         </svg></div>
       <span class="dck-value" data-v>${T.vals ? k.text(v) : "…"}</span><span class="dck-name">${k.name}</span></div>`;
   }).join("");
-  return `<section class="card" data-namtone style="--fc:var(--world)"><div class="card-head"><h2>${icon("adjustments-horizontal", 18)} Gate and EQ</h2></div>
+  return `<section class="card" data-namtone style="--fc:var(--world)"><div class="card-head"><h2>${icon("adjustments-horizontal", 18)} ${T.levels ? "Levels, gate and EQ" : "Gate and EQ"}</h2></div>
     <p class="muted" style="margin:0 0 10px;font-size:13px">For ${who}, kept with it on the pedal. On the pedal: hold PARA.</p>
-    <div class="dck-row" style="grid-template-columns:repeat(4,minmax(0,1fr))">${knobs}</div>
+    <div class="dck-row" style="grid-template-columns:repeat(${shown.length},minmax(0,1fr))">${knobs}</div>
     <div class="note bad" data-tone-err ${T.err ? "" : "hidden"}><span>${esc(T.err || "")}</span></div></section>`;
 }
 
@@ -63,7 +76,7 @@ async function flush(root) {
     while (T.queue.size) {
       const [i, v] = T.queue.entries().next().value;
       T.queue.delete(i);
-      const ok = await T.ctx.linkQuiet((link) => paramSet(link, ID0 + i, v));
+      const ok = await T.ctx.linkQuiet((link) => paramSet(link, TONE_KNOBS[i].id, v));
       showError(root, ok ? null : "The pedal didn't take a change. Is it still running NAM Loader?");
     }
   } catch (e) { showError(root, `Couldn't reach the pedal: ${e.message}`); }
@@ -83,8 +96,15 @@ async function read() {
   const ctx = T.ctx, root = document.querySelector("[data-namtone]");
   if (!ctx || ctx.state.busy || T.sending || T.queue.size || T.drag >= 0) return;
   if (ctx.state.pedal?.firmware?.kind !== "nam") return;
-  const got = await ctx.linkQuiet((link) => paramsRead(link, ID0, 4)).catch(() => null);
+  const got = await ctx.linkQuiet(async (link) => {
+    const eq = await paramsRead(link, 2, 4);
+    if (!eq || eq.length < 4 || T.levels === false) return eq;
+    const lv = await readLevels(link);
+    return [...eq, ...(lv || [])];
+  }).catch(() => null);
   if (!got) return;
+  if (got.length >= 4 && T.levels === null) { T.levels = got.length === 6; if (T.supported === true) { ctx.render(); return; } }
+  if (got.length === 4) got.push(24, 24);
   if (got.length < 4) {                                  // a NAM Loader before 1.2: no tone section
     if (T.supported !== false) { T.supported = false; ctx.render(); }
     return;
@@ -138,4 +158,4 @@ export function mountTone(root, ctx) {
   read();
 }
 /** another pedal or firmware: start over */
-export function resetTone() { Object.assign(T, { vals: null, supported: null, local: [0, 0, 0, 0], err: null }); T.queue.clear(); }
+export function resetTone() { Object.assign(T, { vals: null, supported: null, levels: null, local: [0, 0, 0, 0, 0, 0], err: null }); T.queue.clear(); }

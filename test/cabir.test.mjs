@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, mkdtempSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makeCabFile, cabInfo, cabNameBytes, cabToCab2, CAB_TAPS } from "../src/lib/cabir.js";
+import { makeCabFile, cabInfo, cabNameBytes, cabToCab2, relevelCab, CAB_TAPS } from "../src/lib/cabir.js";
 
 const PY = fileURLToPath(new URL("../../../fw-build/pyenv/bin/python3", import.meta.url));
 const MAKE = fileURLToPath(new URL("../../NAM-Loader/tools/make_cab.py", import.meta.url));
@@ -60,4 +60,18 @@ test("cab file: CAB2 fits one storage sector and matches the float IR to below -
   assert.equal(cabInfo(f2.subarray(0, 16), f2.subarray(16 + 2 * CAB_TAPS)).name, "Orange");
   assert.deepEqual([...cabToCab2(f1)], [...f2], "an old file converts to the same CAB2 file");
   assert.equal(cabToCab2(f2), f2);
+});
+
+test("relevelCab: an IR at the old level (-6 dB target) comes up to today's, once; the name stays", () => {
+  const n = 1024, x = new Float64Array(n);
+  for (let i = 0; i < n; i++) x[i] = Math.exp(-i / 200) * (Math.sin(i * 0.02) + 0.4 * Math.sin(i * 0.13));
+  const now = makeCabFile(x, "Today");
+  assert.equal(relevelCab(now), null, "made today: already matched");
+  // the same IR 8.8 dB quieter, as the old target made it (only the CAB2 scale differs)
+  const old = now.slice(), dv = new DataView(old.buffer);
+  dv.setFloat32(12, dv.getFloat32(12, true) * 10 ** (-8.8 / 20), true);
+  const r = relevelCab(old);
+  assert.ok(r && Math.abs(r.db - 8.8) < 0.05, `changed by ${r && r.db}`);
+  assert.equal(cabInfo(r.bytes.subarray(0, 16), r.bytes.subarray(16 + 2 * n)).name, "Today");
+  assert.equal(relevelCab(r.bytes), null, "matched after once");
 });

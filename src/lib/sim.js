@@ -11,7 +11,8 @@ import { crc32 } from "./gp5nam.js";
 import { parseToneRecord, makeToneRecord, toneIrs, TONE_REC, NAM_OWNER } from "./namfiles.js";
 
 // NAM Loader 1.3.1's parameters (7E 10 / 7E 11), as its nds32/firmware.c answers them: gate, EQ and IR of the
-// capture playing (kept per capture in the store record AMPT), and the slot playing.
+// capture playing (kept per capture in the store record AMPT), and the slot playing; 1.4: its output and input
+// levels (ids 8, 9).
 class NamLive {
   constructor(pedal) { this.p = pedal; }
   files() {                                       // the newest copy of each of NAM Loader's files
@@ -40,6 +41,7 @@ class NamLive {
     if (id === 0) return 1;
     if (id === 1) return 0;
     if (id >= 2 && id <= 5) return own ? e[k].v[id - 2] : [0, 12, 12, 12][id - 2];
+    if ((id === 8 || id === 9) && this.p.namVersion >= "1.4.0") return own ? e[k].v[id - 4] : 24;
     if (id === 6) return i < 0 ? 0 : toneIrs(e, bank, cabs)[i] + 1;
     if (id === 7) return i + 1;
     return null;
@@ -47,10 +49,11 @@ class NamLive {
   set(id, x) {
     const { bank } = this.bank(), i = this.slot(), k = i < 0 ? 30 : i;
     if (id === 7) { if (x > 30 || (x && !bank[x - 1])) return true; this.p.dspCrc = x ? bank[x - 1].crc : 0xD3F0; return true; }
-    if (id < 2 || id > 6) return id <= 1;
+    const lv = (id === 8 || id === 9) && this.p.namVersion >= "1.4.0";
+    if ((id < 2 || id > 6) && !lv) return id <= 1;
     const e = this.rec();
-    if (e[k].crc !== this.p.dspCrc || !e[k].crc) { e[k].crc = this.p.dspCrc; e[k].v = [0, 12, 12, 12]; e[k].ir = 0; }
-    if (id === 6) e[k].ir = x ? x + 1 : 1; else e[k].v[id - 2] = x;
+    if (e[k].crc !== this.p.dspCrc || !e[k].crc) { e[k].crc = this.p.dspCrc; e[k].v = [0, 12, 12, 12, 24, 24]; e[k].ir = 0; }
+    if (id === 6) e[k].ir = x ? x + 1 : 1; else if (lv) e[k].v[id - 4] = x; else e[k].v[id - 2] = x;
     this.save(e); return true;
   }
 }
