@@ -28,7 +28,7 @@ firmware built on [OpenGP5](https://github.com/OpenGP5/OpenGP5).
 | **Presets** | Edit Dreamcatcher's 8 presets while you play, name, rearrange, export and import them; or Valeton's 100 presets, every setting by name | [Dreamcatcher](https://github.com/OpenGP5/Dreamcatcher), Valeton's firmware V1.0.6 |
 | **Live** | Change any firmware's settings as you play, from the firmware's own description of them | OpenGP5 1.0 firmwares |
 | **Backups** | Save everything the firmware keeps on the pedal to one file, and restore it | every firmware |
-| **Mods** | Small changes to your own copy of Valeton's firmware, with undo | Valeton's firmware V1.0.6 |
+| **Mods** | Enable English, Chinese, or both over USB-MIDI without flashing; or apply small changes to your own copy of Valeton's firmware, with undo | Valeton's firmware V1.0.6 |
 | **Developer** | The pedal's log as it comes, and how busy each processor is | OpenGP5 0.7+ firmwares |
 | **Settings** | Theme, the update check, recovery steps | |
 
@@ -65,6 +65,10 @@ choice: the banner opens the download.
 Nothing of Valeton's comes with Launchpad. When you need Valeton's firmware (to flash it back, for its preset
 names, or for a mod), Launchpad downloads it from Valeton's own site, accepts it only if it is exactly V1.0.6, and
 keeps it on your computer.
+
+The Languages mod on the Mods page enables English, Chinese, or both on a stock GP-5 (Valeton V1.0.6) over USB-MIDI,
+without flashing or changing presets. It is based on [Valeton Unlocker](https://github.com/flameshikari/valeton-unlocker)
+and was implemented with AI assistance. The pedal confirms the command but does not report unlocked languages.
 
 ## Build from source
 
