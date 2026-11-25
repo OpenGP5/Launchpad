@@ -12,6 +12,24 @@ import { convertNam, putCapture, readBank } from "../src/lib/gp5nam.js";
 fastTiming();
 const FW = (f) => new URL(`../src/firmware/${f}`, import.meta.url);
 
+test("recognises GP-5 USB port names and skips nearby GP-50 ports", async () => {
+  const p = new SimPedal({ mode: F.MODE_LOADER });
+  const gp5 = "Valeton GP-5 MIDI 1";
+  p.names = async () => ["GP-50:GP-50 MIDI 1 16:0", gp5];
+  assert.deepEqual(await locate(p), { name: gp5, mode: F.MODE_LOADER });
+  const open = "GP-5 Open FW MIDI 1";
+  p.names = async () => [gp5, open];
+  assert.deepEqual(await locate(p), { name: open, mode: MODE_OPEN });
+});
+
+test("leaves GP-50 ports alone during GP-5 discovery and flashing", async () => {
+  const p = new SimPedal({ mode: F.MODE_LOADER });
+  p.names = async () => ["GP-50:GP-50 MIDI 1 16:0", "GP-50 Open FW MIDI 1"];
+  assert.equal(await locate(p), null);
+  await assert.rejects(F.flash(p, [[F.SECTIONS.dsp, Uint8Array.of(1)]], () => {}), /No GP-5 found/);
+  assert.deepEqual(p.sent, []);
+});
+
 test("identifies the simulated NAM player", async () => {
   const p = new SimPedal({ firmware: "nam" });
   const d = await locate(p);
