@@ -1,6 +1,6 @@
 // Developer: what the firmware's gp5_log lines say on both processors, and how busy both processors are (OpenGP5
 // platform 0.7 and later: 7E 18, 7E 14; lib/devtools.js). The same as `gp5_link.py log -f` and `status`.
-import { readLog, readStatus, share } from "../lib/devtools.js";
+import { readLog, readStatus, readUsbAudio, share } from "../lib/devtools.js";
 import { MODE_OPEN } from "../lib/device.js";
 
 /* platform version at least want ("0.7.0") */
@@ -8,7 +8,7 @@ const atLeast = (v, want) => { const a = String(v || "0").split(".").map(Number)
   for (let i = 0; i < 3; i++) if ((a[i] || 0) !== b[i]) return (a[i] || 0) > b[i]; return true; };
 
 const LOG_MS = 700, STATUS_MS = 2000, MAX_LINES = 3000;
-const D = { serial: -1, lines: [], partial: "", pos: 0, status: null, follow: true, err: null, timer: null, lastStatus: 0, lost: 0, ctx: null };
+const D = { serial: -1, lines: [], partial: "", pos: 0, status: null, usb: null, follow: true, err: null, timer: null, lastStatus: 0, lost: 0, ctx: null };
 
 const pct = (x) => `${(100 * x).toFixed(x < 0.1 ? 1 : 0)} %`;
 const kb = (n) => (n >= 10240 ? `${Math.round(n / 1024)} KB` : `${(n / 1024).toFixed(1)} KB`);
@@ -35,7 +35,24 @@ function statusHtml(ctx) {
       ${bar("Variables", d.varsTotal ? d.varsUsed / d.varsTotal : 0, `${kb(d.varsUsed)} of ${kb(d.varsTotal)}`)}
       ${bar("GP5_LARGE buffers", d.largeTotal ? d.largeUsed / d.largeTotal : 0, `${kb(d.largeUsed)} of ${kb(d.largeTotal)}`)}`
         : `<p class="warn-text" style="font-size:13px">The DSP did not answer.</p>`}
+      ${usbHtml()}
     </div>`;
+}
+
+// USB audio's counters since start-up (1.0): a dropout in what the computer plays is a "ran dry" or "too much"
+function usbHtml() {
+  const u = D.usb;
+  if (!u || u.dry === undefined) return "";
+  const row = (k, v, bad) => `<div class="dev-row ${bad ? "warn-text" : ""}"><span>${k}</span><span class="mono">${v}</span></div>`;
+  return `<h3 class="sub-head" style="margin:4px 0 0">USB audio</h3>
+      <div class="dev-rows" style="font-size:13px">
+      ${row("Computer playing", u.playing ? "yes" : "no")}
+      ${row("Playback ran dry", u.dry, u.dry > 0)}
+      ${row("Playback too much", u.over, u.over > 0)}
+      ${row("Clock correction", `${u.ppm > 0 ? "+" : ""}${u.ppm} ppm`, Math.abs(u.ppm) > 2000)}
+      ${row("Frames waiting", u.playing ? u.fill : "–")}
+      ${row("Recording", u.recording ? `on, ${u.recOver} too much` : "off", u.recOver > 0)}
+      </div>`;
 }
 
 function logHtml(ctx) {
@@ -46,7 +63,7 @@ function logHtml(ctx) {
 async function poll(ctx) {
   if (!document.querySelector("[data-devlog]")) { clearInterval(D.timer); D.timer = null; return; }
   const now = Date.now(), wantStatus = now - D.lastStatus > STATUS_MS;
-  const got = await ctx.linkQuiet(async (link) => ({ log: await readLog(link, D.pos), status: wantStatus ? await readStatus(link) : undefined })).catch((e) => ({ error: e.message }));
+  const got = await ctx.linkQuiet(async (link) => ({ log: await readLog(link, D.pos), status: wantStatus ? await readStatus(link) : undefined, usb: wantStatus ? await readUsbAudio(link) : undefined })).catch((e) => ({ error: e.message }));
   if (got.error) { D.err = got.error; return; }
   if (got.log) {
     D.pos = got.log.next; D.lost += got.log.lost;
@@ -59,7 +76,7 @@ async function poll(ctx) {
     if (box && D.follow) { box.innerHTML = logHtml(ctx); box.scrollTop = box.scrollHeight; }
   } else if (got.log === null) D.err = "This firmware has no log (built before OpenGP5 0.7).";
   if (got.status !== undefined) {
-    D.lastStatus = now; D.status = got.status;
+    D.lastStatus = now; D.status = got.status; D.usb = got.usb;
     const s = document.querySelector("[data-devstatus]");
     if (s) s.innerHTML = statusHtml(ctx);
   }

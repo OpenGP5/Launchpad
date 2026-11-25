@@ -36,5 +36,14 @@ export function parseStatus(r) {
   };
 }
 
+/** USB audio (1.0, 7E 19): the direct-sound setting and the playback / recording counters since start-up, or null. */
+export async function readUsbAudio(link) {
+  const r = await cmd(link, [0x7E, 0x19], 400);
+  if (!r || r.length < 5 || r[2] !== 1) return null;
+  const out = { direct: !!r[3], playing: !!r[4] };
+  if (r.length >= 24) Object.assign(out, { dry: u32(r, 5), over: u32(r, 9), ppm: u32(r, 13) | 0, fill: r[17] | (r[18] << 8), recOver: u32(r, 19), recording: !!r[23] });
+  return out;
+}
+
 /** a share of a block, 0..1+ */
 export const share = (cycles, block) => (block ? cycles / block : 0);

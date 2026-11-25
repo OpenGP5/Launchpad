@@ -14,9 +14,13 @@ const STOCK_V106 = { 0x63: [0x3688, 0xC348], 0x67: [0x27A5, 0x55028], 0x66: [0x2
 
 export const MODE_OPEN = "open firmware", MODE_STOCK = "stock firmware", MODE_LOADER = "update mode";
 export const MODE_SILENT = "firmware that does not answer";
-const OPEN_PORT = "GP-5 Open FW", ANY_PORT = "GP-5";
-const BT_PORT = "GP-5 Bluetooth";                 // the pedal over Bluetooth MIDI (macOS names it so; OpenGP5 1.0)
+// The open firmware's port: "OpenGP5" from 1.0, "GP-5 Open FW" before. Valeton's firmware and the loader: "GP-5".
+const OPEN_PORTS = ["OpenGP5", "GP-5 Open FW"], ANY_PORT = "GP-5";
 export const isBluetooth = (name) => !!name && name.includes("Bluetooth");
+// The open firmware's USB port (a Bluetooth port's name holds "OpenGP5" too: not that one)
+export const isOpenPort = (name) => !!name && !isBluetooth(name) && OPEN_PORTS.some((p) => name.includes(p));
+// The pedal over Bluetooth MIDI: macOS names the port after the pedal, "OpenGP5 Bluetooth" ("GP-5 Bluetooth" before 1.0)
+const isPedalBluetooth = (name) => isBluetooth(name) && (name.includes("OpenGP5") || name.includes("GP-5"));
 // bluetoothFirst: use the pedal's Bluetooth port even while USB is connected too (testing Bluetooth on a pedal that
 // takes its power from USB; Launchpad: GP5_BLUETOOTH_FIRST=1 npm start)
 export const options = { bluetoothFirst: false };
@@ -186,11 +190,11 @@ async function ask(link, payload, want, timeout) {
 // [name, mode] of the connected pedal, or [null, null].
 export async function find(ports) {
   const names = await ports.names();
-  let name = options.bluetoothFirst && names.find((n) => n.includes(BT_PORT));
+  let name = options.bluetoothFirst && names.find(isPedalBluetooth);
   if (name) return [name, MODE_OPEN];
-  name = names.find((n) => n.includes(OPEN_PORT));
+  name = names.find(isOpenPort);
   if (name) return [name, MODE_OPEN];
-  name = names.find((n) => n.includes(BT_PORT));                     // USB first; else the pedal over Bluetooth
+  name = names.find(isPedalBluetooth);                                // USB first; else the pedal over Bluetooth
   if (name) return [name, MODE_OPEN];
   name = names.find((n) => n.includes(ANY_PORT) && !isBluetooth(n));
   if (!name) return [null, null];

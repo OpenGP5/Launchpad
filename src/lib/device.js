@@ -175,4 +175,15 @@ export async function readControls(link, timeout = 300) {
   return r && r.length >= 6 && r[2] === 1 ? { knob: r[3] / 255, foot: !!r[4], para: !!r[5] } : null;
 }
 
+// USB audio (OpenGP5 1.0, 7E 19): whether the pedal's own sound reaches its outputs while the computer plays into the
+// pedal (off: a DAW monitoring the pedal isn't heard twice), and whether the computer is playing. null: no USB audio.
+export async function readDirect(link, timeout = 400) {
+  const r = await cmd(link, [0x7E, 0x19], timeout);
+  return r && r.length >= 5 && r[2] === 1 ? { direct: !!r[3], playing: !!r[4] } : null;
+}
+export async function setDirect(link, on, timeout = 400) {
+  const r = await cmd(link, [0x7E, 0x19, on ? 1 : 0], timeout);
+  return r && r.length >= 5 && r[2] === 1 ? { direct: !!r[3], playing: !!r[4] } : null;
+}
+
 export { SECTOR };

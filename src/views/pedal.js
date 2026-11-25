@@ -173,6 +173,7 @@ export function pedalPanel(ctx) {
     <div class="panel-head"><h3>${p ? "Your pedal" : "No pedal"}</h3>${state.sim ? '<span class="pill">simulated</span>' : ""}</div>
     <div class="panel-body">
       <div class="pedal ${p ? "" : "off"}">${pedalSvg(led, { knob: state.knob ?? null, stock: stockShown(state) })}${p?.mode === MODE_STOCK ? "" : `<div class="screen">${screen(ctx)}</div>`}</div>
+      ${p && state.usb ? `<label class="check panel-check"><input type="checkbox" id="usb-direct" ${state.usb.direct ? "checked" : ""}><span>Pedal sound while the computer plays<small>Turn off when your DAW monitors the pedal, so you don't hear it twice. Back on at restart.</small></span></label>` : ""}
       ${p ? `<dl class="facts">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd class="${/^[\d /]+$/.test(v) ? "mono" : ""}">${esc(v)}</dd>`).join("")}</dl>
         ${state.view === "home" ? "" : `<div class="panel-actions"><button class="btn small" data-go="backups">Back up</button><button class="btn small" data-go="flash">Flash</button></div>`}`
       : `<p class="muted" style="text-align:center;margin-top:14px;font-size:13.5px">Connect the GP-5 with a USB cable. Launchpad finds it by itself.</p>`}

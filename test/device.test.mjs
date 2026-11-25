@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { SimPedal, fastTiming } from "../src/lib/sim.js";
 import * as F from "../src/lib/gp5flash.js";
-import { locate, identify, storeSave, readStore, MODE_OPEN } from "../src/lib/device.js";
+import { locate, identify, storeSave, readStore, readDirect, setDirect, MODE_OPEN } from "../src/lib/device.js";
 import { latest, IDS, encodeDreamcatcher, decodeDreamcatcher, DC } from "../src/lib/gp5store.js";
 import { makeBackup, parseBackup, serialize, restorable } from "../src/lib/backup.js";
 import { convertNam, putCapture, readBank } from "../src/lib/gp5nam.js";
@@ -57,6 +57,16 @@ test("store writes, backup and restore check", async () => {
   // a damaged preset part is caught
   const text = new TextDecoder().decode(serialize(b)).replace('"last": ', '"last": 99, "x": ');
   assert.ok((await parseBackup(new TextEncoder().encode(text))).problems.length > 0);
+});
+
+test("platform 1.0: USB audio's direct sound, read and switched; older platforms don't have it", async () => {
+  const p = new SimPedal({ firmware: "dreamcatcher", identity: true, platform: "1.0.0" });
+  const link = await p.open((await locate(p)).name);
+  assert.deepEqual(await readDirect(link), { direct: true, playing: false });
+  assert.deepEqual(await setDirect(link, false), { direct: false, playing: false });
+  assert.deepEqual(await readDirect(link), { direct: false, playing: false });
+  const old = new SimPedal({ firmware: "dreamcatcher", identity: true, platform: "0.8.0" });
+  assert.equal(await readDirect(await old.open((await locate(old)).name), 100), null);
 });
 
 test("platform 0.4: identity command and store reload", async () => {

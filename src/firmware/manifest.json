@@ -2,18 +2,18 @@
  {
   "file": "GP-5_dreamcatcher.bin",
   "title": "Dreamcatcher",
-  "description": "Ambient looper, glitch delay with grains and pitch shifting, and reverb, free or in time with a tempo. 8 presets. Source: github.com/OpenGP5/Dreamcatcher.",
-  "version": "v1.4.0 (OpenGP5 0.8.0)",
-  "sha256": "caba2a3b43cefc05008f38dd2bd1824e22a81933388a11a88c612efc264d09ab",
+  "description": "Ambient looper, glitch delay with grains and pitch shifting, and reverb, free or in time with a tempo. 8 presets, Bluetooth MIDI, USB audio. Source: github.com/OpenGP5/Dreamcatcher.",
+  "version": "v1.5.0 (OpenGP5 1.0.0)",
+  "sha256": "2e1cfcfa395d5016839a567acbbe1cf3b483665dd0c351f3d2ea71d0c62895c9",
   "world": "w-dream",
   "id": "dreamcatcher"
  },
  {
   "file": "GP-5_nam-loader.bin",
   "title": "NAM Loader",
-  "description": "Plays NAM A2 captures at 48 kHz with an input and output level, a noise gate and EQ each, and any of 12 cab IRs. 30 slots, filled from the Tones page.",
-  "version": "v1.4.0 (OpenGP5 0.8.0)",
-  "sha256": "ee33b07051ee877b119b22f204ff0221fe3308df8f4d8d2a71c3f6a072488aad",
+  "description": "Plays NAM A2 captures at 48 kHz with an input and output level, a noise gate and EQ each, and any of 12 cab IRs; USB audio. 30 slots, filled from the Tones page.",
+  "version": "v1.4.0 (OpenGP5 1.0.0)",
+  "sha256": "7e9099c008e69680d42acbdf02067235362375880d82db95df67e11d9f85db60",
   "world": "w-nam",
   "id": "nam"
  }

@@ -2,7 +2,7 @@
 // never probed as Valeton's firmware, never flashed.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { find, isBluetooth, flash, options, MODE_OPEN } from "../src/lib/gp5flash.js";
+import { find, isBluetooth, isOpenPort, flash, options, MODE_OPEN } from "../src/lib/gp5flash.js";
 
 const ports = (names, opened = []) => ({
   async names() { return names; },
@@ -13,6 +13,15 @@ test("the Bluetooth port is the open firmware, and USB wins when both are there"
   assert.deepEqual(await find(ports(["GP-5 Bluetooth"])), ["GP-5 Bluetooth", MODE_OPEN]);
   assert.deepEqual(await find(ports(["GP-5 Bluetooth", "GP-5 Open FW"])), ["GP-5 Open FW", MODE_OPEN]);
   assert.ok(isBluetooth("GP-5 Bluetooth") && !isBluetooth("GP-5 Open FW") && !isBluetooth(null));
+  // the open firmware's USB name from 1.0, and before; Valeton's firmware and the loader stay "GP-5"
+  assert.deepEqual(await find(ports(["GP-5 Bluetooth", "OpenGP5"])), ["OpenGP5", MODE_OPEN]);
+  assert.deepEqual(await find(ports(["OpenGP5 MIDI 1"])), ["OpenGP5 MIDI 1", MODE_OPEN]);
+  assert.ok(isOpenPort("OpenGP5") && isOpenPort("GP-5 Open FW") && !isOpenPort("GP-5") && !isOpenPort("GP-5 Bluetooth"));
+  // Bluetooth from 1.0: "OpenGP5 Bluetooth" is the pedal over Bluetooth, never its USB port
+  assert.ok(!isOpenPort("OpenGP5 Bluetooth") && isBluetooth("OpenGP5 Bluetooth"));
+  assert.deepEqual(await find(ports(["OpenGP5 Bluetooth", "OpenGP5"])), ["OpenGP5", MODE_OPEN]);
+  assert.deepEqual(await find(ports(["OpenGP5 Bluetooth"])), ["OpenGP5 Bluetooth", MODE_OPEN]);
+  assert.deepEqual(await find(ports(["Focusrite Bluetooth"])), [null, null]);
 });
 
 test("bluetoothFirst (testing, USB-powered pedal): the Bluetooth port wins over USB", async () => {

@@ -5,7 +5,7 @@ import { INDEX_URL } from "./lib/catalog.js";
 import { webMidiPorts } from "./lib/webmidi.js";
 import { isBluetooth, options as flashOptions } from "./lib/gp5flash.js";
 flashOptions.bluetoothFirst = !!window.launchpad?.bluetoothFirst;
-import { locate, identify, readStore, readControls, paramsRead, MODE_OPEN, MODE_STOCK, MODE_LOADER, MODE_SILENT } from "./lib/device.js";
+import { locate, identify, readStore, readControls, readDirect, setDirect, paramsRead, MODE_OPEN, MODE_STOCK, MODE_LOADER, MODE_SILENT } from "./lib/device.js";
 import { readBank, dspCaptureCrc } from "./lib/gp5nam.js";
 import { readToneFiles, namLayout, readToneRecord, toneIrs } from "./lib/namfiles.js";
 import { listPresets, currentPreset, firmwareConstant, readGlobals, OUTPUT_LEVEL } from "./lib/stockpresets.js";
@@ -231,7 +231,7 @@ function locked(fn) {
 }
 
 async function dropLink() {
-  const l = state.link; state.link = null; state.nam = null; state.dream = null; state.stock = null; state.knob = null;
+  const l = state.link; state.link = null; state.nam = null; state.dream = null; state.stock = null; state.knob = null; state.usb = null;
   if (l) try { await l.close(); } catch { /* gone */ }
 }
 
@@ -263,6 +263,7 @@ async function pollLocked() {
       // Bluetooth, 2026-11-23)
       const step = (what) => { state.identifying = 1; state.reading = what; renderConn(); };
       if (state.pedal.firmware.meta) { step("its settings"); state.params = { desc: await readDescriptions(state.link) }; }   // 1.0: any firmware's settings
+      if (atLeast(state.pedal.firmware.platform, "1.0.0")) state.usb = await readDirect(state.link);                       // USB audio's direct sound
       if (state.pedal.firmware.kind === "nam") { step("its tones"); await ctx.loadNam(state.link); }
       if (state.pedal.firmware.kind === "dreamcatcher") { step("its presets"); await ctx.loadDream(state.link); }
       state.identifying = 0; state.reading = null;
@@ -307,7 +308,20 @@ async function knobPoll() {
   } catch { /* a missed reading: try again next time */ }
   finally { knobBusy = false; }
 }
-function renderPanel() { $("panel").innerHTML = pedalPanel(ctx); fitScreen($("panel")); $("panel").querySelectorAll("[data-go]").forEach((b) => b.onclick = () => ctx.go(b.dataset.go)); }
+function renderPanel() {
+  $("panel").innerHTML = pedalPanel(ctx); fitScreen($("panel"));
+  $("panel").querySelectorAll("[data-go]").forEach((b) => b.onclick = () => ctx.go(b.dataset.go));
+  const d = $("panel").querySelector("#usb-direct");
+  if (d) d.onchange = async () => {
+    const p = state.pedal, on = d.checked;
+    try {
+      const r = await locked(async () => (state.link && state.pedal === p ? setDirect(state.link, on) : null));
+      if (!r) throw new Error("no answer");
+      state.usb = r;
+    } catch { ctx.toast("The pedal didn't take the change"); }
+    renderPanel();
+  };
+}
 
 // ------------------------------------------------------------------ drawing
 

@@ -50,6 +50,7 @@ const P = {
   "bluetooth": `<path d="M7 8l10 8l-5 4l0 -16l5 4l-10 8" />`,
   "bluetooth-off": `<path d="M3 3l18 18" /> <path d="M16.438 16.45l-4.438 3.55v-8m0 -4v-4l5 4l-2.776 2.22m-2.222 1.779l-5 4" />`,
   "chevron-right": `<path d="M9 6l6 6l-6 6" />`,
+  "chevron-left": `<path d="M15 6l-6 6l6 6" />`,
   "minus": `<path d="M5 12l14 0" />`,
   "square": `<path d="M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2z" />`,
 };

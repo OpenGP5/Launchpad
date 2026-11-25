@@ -251,6 +251,8 @@ label.check input { margin-top: 2px; }
 .facts { display: grid; grid-template-columns: auto 1fr; gap: 0; font-size: 13px; margin: 14px 0 0; border-top: 1px solid var(--line); }
 .facts dt, .facts dd { padding: 7px 0; border-bottom: 1px solid var(--line); }
 .facts dt { color: var(--text-3); } .facts dd { margin: 0; text-align: right; font-weight: 650; }
+.panel-check { margin-top: 14px; font-size: 13px; padding: 10px 12px; border-radius: var(--r-md); background: var(--surface-2); flex-shrink: 0; }
+.panel-check small { display: block; color: var(--text-3); font-size: 12px; margin-top: 2px; line-height: 1.4; }
 .panel-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
 
 /* ---- home ---- */
@@ -500,3 +502,6 @@ input[type="checkbox"]:not(.switch):disabled { opacity: 0.5; cursor: not-allowed
 .tb-dropcover .icon { color: var(--nam-strong); }
 @media (max-width: 1000px) { .tb-grid { grid-template-columns: minmax(0, 1fr); height: auto !important; } .tb-scroll { max-height: 60vh; } .tb-detail { overflow: visible; } }
 .home-caps { max-height: calc(100vh - 330px); overflow: auto; }     /* many captures: the card scrolls, not the page */
+
+.dev-rows { display: grid; gap: 0; border-top: 1px solid var(--line); }
+.dev-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); }

@@ -204,6 +204,10 @@ export class SimPedal extends FakePedal {
         return [[0x7E, 0x16, 1, blk.length & 255, blk.length >> 8, ...blk.subarray(off, off + 48)]];
       }
       case 0x0F: return this.identity && this.platform >= "0.5.2" ? [[0x7E, 0x0F, 1, this.knob ?? 150, 0, 0]] : out;
+      case 0x19:                                       // USB audio's direct sound (1.0)
+        if (!this.identity || this.platform < "1.0") return out;
+        if (pl.length > 2) this.direct = !!pl[2];
+        return [[0x7E, 0x19, 1, this.direct === false ? 0 : 1, 0, ...Array(12).fill(0), 0, 0, 0, 0, 0, 0, 0]];   // + counters, all 0
       case 0x18: return this.dev() ? [this.logReply(a)] : out;          // the log (platform 0.7)
       case 0x14: return this.dev() ? [this.statusReply(pl.length > 2 && pl[2] === 1)] : out;   // load and memory (0.7)
       case 0x0E:
