@@ -9,7 +9,7 @@
   "scripts": {
     "start": "electron .",
     "icon": "electron scripts/icon.cjs",
-    "test": "node --test test/",
+    "test": "node --test test/*.test.mjs",
     "dist:mac": "electron-builder --mac",
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux"
