@@ -6,7 +6,6 @@
   <a href="https://github.com/OpenGP5/Launchpad/releases/latest"><img alt="Version 0.4.0" src="https://img.shields.io/badge/version-0.4.0-3cc0c1?style=flat-square"></a>
   <img alt="macOS, Windows and Linux" src="https://img.shields.io/badge/runs%20on-macOS%20%7C%20Windows%20%7C%20Linux-5b6b7b?style=flat-square">
   <a href="LICENSE"><img alt="Licence: MIT" src="https://img.shields.io/badge/licence-MIT-3ee8b5?style=flat-square"></a>
-  <img alt="Status: alpha" src="https://img.shields.io/badge/status-alpha-e8590c?style=flat-square">
 </p>
 
 <p align="center">
@@ -33,7 +32,7 @@ firmware built on [OpenGP5](https://github.com/OpenGP5/OpenGP5).
 | **Settings** | Theme, the update check, recovery steps | |
 
 > [!NOTE]
-> **Alpha.** Flashing custom firmware can go wrong. Read
+> **Before you flash.** Flashing custom firmware can go wrong. Read
 > [Before you flash](https://opengp5.github.io/docs/get-started/safety/) first.
 
 ## Download
