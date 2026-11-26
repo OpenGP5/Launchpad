@@ -1,12 +1,16 @@
-// Mods: changes to Valeton's stock firmware, built in or from shared .gp5mod files, installed from the user's own
-// stock image (lib/mods.js). Undo = put Valeton's original back from the same file.
+// Mods: language settings over USB-MIDI plus firmware changes built in or from shared .gp5mod files.
+// Firmware mods use the user's own stock image (lib/mods.js); Undo restores Valeton's original from that file.
 import * as F from "../lib/gp5flash.js";
 import { MODS, buildMod, readModFile, stockSections, stockVersion } from "../lib/mods.js";
 import { changeFirmware } from "../lib/change.js";
 import { catalogFromImage, saveCatalog, loadSavedCatalog } from "../lib/stockcat.js";
+import { V106 } from "../lib/stockpresets.js";
+import { setLanguage } from "../lib/stocklanguage.js";
 import { backupNow } from "./backups.js";
 
-const ui = { result: null, log: [], progress: null, loaded: [] };
+const ui = { result: null, log: [], progress: null, loaded: [], language: "both", languageResult: null, languagePedalSerial: null };
+const LANGUAGE_NAMES = { en: "English", zh: "Chinese", both: "English and Chinese" };
+const LANGUAGE_MOD = { id: "languages", status: "ready", base: "1.0.6" };
 const SECTION = { 0x62: "app", 0x65: "presets", 0x63: "DSP" };
 const raw = (b) => (typeof b === "string" ? b.replace(/\s+/g, "").match(/../g).map((x) => parseInt(x, 16)) : Array.from(b));
 const changed = (p) => { const a = raw(p.before), b = raw(p.after); return a.filter((v, i) => v !== b[i]).length; };
@@ -28,14 +32,36 @@ function card(ctx, m, fromFile) {
   </div></section>`;
 }
 
+function languageCard(ctx) {
+  const { esc, icon, state } = ctx;
+  const ready = state.pedal?.mode === F.MODE_STOCK && state.stock?.version === V106 && !!state.link && !state.busy;
+  return `<section class="card w-mods"><div class="stack">
+    <div class="card-head" style="margin-bottom:0"><h2>${icon("language", 18)} Languages</h2><span class="pill world">for Valeton V${LANGUAGE_MOD.base}</span></div>
+    <p class="muted">Enable English, Chinese, or both on the connected GP-5. This sends a settings command over USB-MIDI; it doesn't flash firmware or change presets.</p>
+    <div class="row"><label for="mod-language">Languages</label>
+      <select id="mod-language" data-language ${ready ? "" : "disabled"}>
+        <option value="en" ${ui.language === "en" ? "selected" : ""}>English</option>
+        <option value="zh" ${ui.language === "zh" ? "selected" : ""}>Chinese</option>
+        <option value="both" ${ui.language === "both" ? "selected" : ""}>English + Chinese</option>
+      </select>
+      <button class="btn primary" data-act="language" ${ready ? "" : "disabled"}>${icon("language", 16)} Apply</button></div>
+    ${state.pedal && !ready && !state.busy ? `<p class="faint" style="font-size:12.5px">Connect a GP-5 running Valeton's firmware V${LANGUAGE_MOD.base} to use this.</p>` : ""}
+    ${ui.languageResult ? `<div class="note ${ui.languageResult.ok ? "good" : "bad"}">${icon(ui.languageResult.ok ? "circle-check" : "alert-triangle", 16)}<span>${esc(ui.languageResult.text)}</span></div>` : ""}
+  </div></section>`;
+}
+
 export default {
   id: "mods", title: "Mods", icon: "puzzle", world: "w-mods",
   render(ctx) {
-    const { esc, icon, state } = ctx, all = [...MODS, ...ui.loaded];
+    const { esc, icon, state } = ctx, all = [LANGUAGE_MOD, ...MODS, ...ui.loaded];
+    if (ui.languagePedalSerial !== state.pedalSerial) {
+      ui.languageResult = null;
+      ui.languagePedalSerial = state.pedalSerial;
+    }
     return ctx.banner("w-mods", "puzzle", "Mods", "",
         { chips: [`${all.length} mod${all.length === 1 ? "" : "s"}`, `${all.filter((m) => m.status !== "research").length} ready`],
           actions: `<button class="btn" data-act="file">${icon("file-import", 16)} Open a mod file</button>` }) + `
-      <div class="stack">${MODS.map((m) => card(ctx, m, false)).join("")}${ui.loaded.map((m) => card(ctx, m, true)).join("")}
+      <div class="stack">${all.map((m) => m === LANGUAGE_MOD ? languageCard(ctx) : card(ctx, m, ui.loaded.includes(m))).join("")}
         ${ui.progress ? `<div class="card"><p class="muted" style="font-size:13px;margin-bottom:6px">${esc(ui.progress.label)}</p><progress max="1" value="${ui.progress.f}"></progress></div>` : ""}
         ${ui.result ? `<div class="note ${ui.result.ok ? "good" : "bad"}">${icon(ui.result.ok ? "circle-check" : "alert-triangle", 16)}<span style="white-space:pre-wrap">${esc(ui.result.text)}</span></div>` : ""}
         ${ui.log.length ? `<div class="log">${esc(ui.log.join("\n"))}</div>` : ""}
@@ -46,6 +72,27 @@ export default {
   },
   mount(root, ctx) {
     const { state } = ctx;
+    root.querySelector("[data-language]").onchange = (event) => {
+      ui.language = event.target.value;
+      ui.languageResult = null;
+      ctx.render();
+    };
+    root.querySelector('[data-act="language"]').onclick = async () => {
+      const mode = ui.language, pedalSerial = state.pedalSerial;
+      if (state.pedal?.mode !== F.MODE_STOCK || state.stock?.version !== V106 || !state.link) return;
+      if (!(await ctx.confirm(`Enable ${LANGUAGE_NAMES[mode]}?`,
+        `Launchpad will send a language settings command to the connected GP-5. It won't flash firmware or change presets.`, "Apply"))) return;
+      if (state.pedalSerial !== pedalSerial || !state.link) return;
+      ui.languageResult = null;
+      ui.languagePedalSerial = pedalSerial;
+      try {
+        const result = await ctx.withLink("Setting languages", (link) => setLanguage(link, mode));
+        if (state.pedalSerial === pedalSerial) ui.languageResult = { ok: true, text: `The pedal accepted the request for ${LANGUAGE_NAMES[mode]}. ` +
+          (result.after ? `Current display language: ${LANGUAGE_NAMES[result.after]}. ` : "") +
+          `The pedal's protocol doesn't report which languages are unlocked; check its language menu.` };
+      } catch (error) { if (state.pedalSerial === pedalSerial) ui.languageResult = { ok: false, text: error.message }; }
+      ctx.render();
+    };
     const flashIt = async (sections, target, done) => {
       ui.log = []; ui.result = null; ui.progress = { label: "Starting", f: 0 }; ctx.render();
       try {

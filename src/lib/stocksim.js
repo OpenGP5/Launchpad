@@ -37,6 +37,8 @@ export class StockModel {
     this.banks = { 0x24: Array.from({ length: 80 }, (_, i) => (i % 3 === 0 && i < 30 ? `Tone ${i + 1}` : null)),
                    0x20: Array.from({ length: 20 }, (_, i) => (i < 4 ? `Cab IR ${i + 1}` : null)) };
     this.flashWrites = 0; this.dropEvery = 0; this.seen = 0; this.log = []; this.failNextWrite = false; this.corruptNextWrite = false;
+    this.deviceId = "0123456789abcdef"; this.firmware = 0x01010006;
+    this.language = 0; this.unlockedLanguages = "0001";
   }
   read(n) {                                       // §3.3
     const slot = this.map[n];
@@ -98,10 +100,15 @@ export class StockModel {
         }
         case 0x43: return this.reply(Uint8Array.from([0x12, 0x43, this.current & 0xFF, this.current >> 8]));
         case 0x10: {                              // globals: a few of the real items, 0x0202 = output level × 100
-          const items = [[0x0101, 0x01010006], [0x0102, 1], [0x0202, this.level ?? 70], [0x0203, 64]], r = new Uint8Array(2 + 8 * items.length);
+          const items = [[0x0101, this.firmware], [0x0102, 1], [0x0201, this.language], [0x0202, this.level ?? 70], [0x0203, 64]], r = new Uint8Array(2 + 8 * items.length);
           r[0] = 0x12; r[1] = 0x10; const v = new DataView(r.buffer);
           items.forEach(([id, x], i) => { v.setUint16(2 + 8 * i, id, true); v.setUint16(4 + 8 * i, 4, true); v.setInt32(6 + 8 * i, x, true); });
           return this.reply(r);
+        }
+        case 0x32: {                              // Device ID: a made-up ID and key, using the stock cipher
+          const key = Uint8Array.from([0x47, 0x50, 0x35]), id = new TextEncoder().encode(this.deviceId);
+          const encrypted = id.map((b, i) => { const x = b ^ key[i % key.length]; return ((x >> 2) | (x << 6)) & 0xFF; });
+          return this.reply(Uint8Array.from([0x12, 0x32, 1 + key.length + encrypted.length, 0, key.length, ...key, ...encrypted]));
         }
         case 0x45: return this.reply(Uint8Array.from([0x12, 0x45, this.dirty ? 1 : 0]));
         case 0x1A: return this.reply(Uint8Array.from([0x12, 0x1A, 0x06, 0x00, 0x01, 0x01]));
@@ -116,6 +123,17 @@ export class StockModel {
     if (a !== 0x11) return [];
     const ok = (s = 0) => [ACK(s)];
     switch (c) {
+      case 0x33: {                                // language activation; no firmware or preset write
+        if (msg.length < 8 || u32(2) !== msg.length - 6) return ok(1);
+        const blob = msg.subarray(6), key = blob.subarray(1, 1 + blob[0]), encrypted = blob.subarray(1 + blob[0]);
+        if (!key.length || encrypted.length !== 20) return ok(1);
+        const plain = String.fromCharCode(...encrypted.map((b, i) => (((b << 2) | (b >> 6)) & 0xFF) ^ key[i % key.length]));
+        const id = new TextDecoder().decode(key), code = plain.slice(id.length);
+        if (id !== this.deviceId || !plain.startsWith(id) || !["0001", "0002", "0003"].includes(code)) return ok(1);
+        this.unlockedLanguages = code;
+        if (code !== "0003") this.language = code === "0002" ? 1 : 0;
+        return ok();
+      }
       case 0x4F: {
         const n = u16(2);
         if (n >= PRESETS) return ok(1);
